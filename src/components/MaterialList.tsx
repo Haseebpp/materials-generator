@@ -1,0 +1,132 @@
+import { useState, useMemo } from "react"
+import { Search, Plus } from "lucide-react"
+
+import type { Material } from "@/types"
+import materialsData from "@/data/materials.json"
+import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+    Accordion,
+    AccordionContent,
+    AccordionItem,
+    AccordionTrigger,
+} from "@/components/ui/accordion"
+
+interface MaterialListProps {
+    onAdd: (material: Material) => void
+    isPriceVisible: boolean
+}
+
+export function MaterialList({ onAdd, isPriceVisible }: MaterialListProps) {
+    const [searchTerm, setSearchTerm] = useState("")
+
+    // Group materials by category
+    const groupedMaterials = useMemo(() => {
+        const groups: Record<string, Material[]> = {}
+        const filtered = (materialsData as Material[]).filter(
+            (m) =>
+                m.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                m.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                Object.values(m.details).some(val => val.toLowerCase().includes(searchTerm.toLowerCase()))
+        )
+
+        filtered.forEach((item) => {
+            const category = item.category || "Uncategorized"
+            if (!groups[category]) {
+                groups[category] = []
+            }
+            groups[category].push(item)
+        })
+
+        return groups
+    }, [searchTerm])
+
+    // Create a default checked value if search is active so relevant lists open
+    const defaultValue = useMemo(() => {
+        if (!searchTerm) return []
+        return Object.keys(groupedMaterials).slice(0, 10) // Limit expand to avoid lag if matches many
+    }, [groupedMaterials, searchTerm])
+
+    return (
+        <div className="flex flex-col h-full bg-card border-r">
+            <div className="p-4 border-b space-y-4">
+                <h2 className="font-semibold text-lg tracking-tight">Material Library</h2>
+                <div className="relative">
+                    <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                        placeholder="Search materials..."
+                        className="pl-8"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                </div>
+            </div>
+            <ScrollArea className="flex-1">
+                <div className="p-4">
+                    {Object.keys(groupedMaterials).length === 0 ? (
+                        <div className="text-center text-sm text-muted-foreground py-8">
+                            No materials found.
+                        </div>
+                    ) : (
+                        <Accordion type="multiple" className="w-full" value={defaultValue.length > 0 ? defaultValue : undefined}>
+                            {Object.entries(groupedMaterials).map(([category, items]) => (
+                                <AccordionItem key={category} value={category} className="border-b-0 mb-2 bg-card">
+                                    <AccordionTrigger className="px-3 py-2 hover:bg-muted/50 rounded-md text-sm font-semibold uppercase text-muted-foreground hover:no-underline hover:text-foreground group data-[state=open]:text-foreground data-[state=open]:bg-muted/50">
+                                        {category}
+                                        <span className="ml-2 bg-muted-foreground/10 text-muted-foreground text-[10px] px-1.5 py-0.5 rounded-full group-hover:bg-background group-hover:text-foreground transition-colors">
+                                            {items.length}
+                                        </span>
+                                    </AccordionTrigger>
+                                    <AccordionContent className="pt-1 pb-2">
+                                        <div className="space-y-1 pl-1">
+                                            {items.map((material) => (
+                                                <div
+                                                    key={material.id}
+                                                    className="group flex items-center justify-between p-2 rounded-md hover:bg-accent/50 transition-colors border border-transparent hover:border-border/50 animate-in fade-in slide-in-from-top-1 duration-200"
+                                                >
+                                                    <div className="flex flex-col min-w-0 pr-2">
+                                                        <span className="text-sm font-medium truncate" title={material.description}>
+                                                            {material.description}
+                                                        </span>
+                                                        <div className="flex flex-wrap gap-1.5 mt-1">
+                                                            {Object.entries(material.details).map(([key, value]) => {
+                                                                if (!value) return null
+                                                                const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+                                                                return (
+                                                                    <span
+                                                                        key={key}
+                                                                        className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-100 dark:border-blue-800"
+                                                                    >
+                                                                        {label}: {value}
+                                                                    </span>
+                                                                )
+                                                            })}
+                                                            {isPriceVisible && (
+                                                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300 border border-green-100 dark:border-green-800">
+                                                                    {material.rate}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <Button
+                                                        size="icon"
+                                                        variant="secondary"
+                                                        className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 shadow-sm"
+                                                        onClick={() => onAdd(material)}
+                                                    >
+                                                        <Plus className="h-3.5 w-3.5" />
+                                                    </Button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </AccordionContent>
+                                </AccordionItem>
+                            ))}
+                        </Accordion>
+                    )}
+                </div>
+            </ScrollArea>
+        </div>
+    )
+}
