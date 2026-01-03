@@ -62,7 +62,7 @@ export function MaterialList({ onAdd, isPriceVisible }: MaterialListProps) {
                     />
                 </div>
             </div>
-            <ScrollArea className="flex-1">
+            <ScrollArea className="flex-1" fadeColor="from-card">
                 <div className="p-4">
                     {Object.keys(groupedMaterials).length === 0 ? (
                         <div className="text-center text-sm text-muted-foreground py-8">
