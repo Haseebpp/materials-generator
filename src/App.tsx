@@ -98,6 +98,12 @@ function App() {
     )
   }
 
+  const handleUpdateMaterial = (updatedMaterial: Material) => {
+    setBoqItems((prev) =>
+      prev.map((item) => (item.id === updatedMaterial.id ? { ...item, ...updatedMaterial } : item))
+    )
+  }
+
   const handleReset = () => {
     if (confirm("Are you sure you want to clear the BOQ?")) {
       setBoqItems([])
@@ -162,6 +168,7 @@ function App() {
                 onRemove={handleRemoveItem}
                 onAddMaterial={handleAddMaterial}
                 onUpdateRemark={handleUpdateRemark}
+                onUpdateMaterial={handleUpdateMaterial}
                 isPriceVisible={isPriceVisible}
               />
             </ScrollArea>

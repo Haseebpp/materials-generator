@@ -14,19 +14,23 @@ import { CreatableCombobox } from "@/components/ui/creatable-combobox"
 import type { Material, MaterialDetails } from "@/types"
 import materialsData from "@/data/materials.json"
 
-interface AddMaterialDialogProps {
+interface MaterialDialogProps {
     open: boolean
     onOpenChange: (open: boolean) => void
-    onAdd: (material: Material) => void
+    onSave: (material: Material) => void
+    initialData?: Material | null
     defaultDescription?: string
+    mode?: "add" | "edit"
 }
 
-export function AddMaterialDialog({
+export function MaterialDialog({
     open,
     onOpenChange,
-    onAdd,
+    onSave,
+    initialData,
     defaultDescription = "",
-}: AddMaterialDialogProps) {
+    mode = "add",
+}: MaterialDialogProps) {
     const [description, setDescription] = useState("")
     const [category, setCategory] = useState("")
     const [rate, setRate] = useState("")
@@ -40,10 +44,33 @@ export function AddMaterialDialog({
 
     useEffect(() => {
         if (open) {
-            setDescription(defaultDescription)
-            // Reset other fields if needed, or keep them to allow repetitive additions
+            if (mode === "edit" && initialData) {
+                setDescription(initialData.description)
+                setCategory(initialData.category)
+                setUnit(initialData.unit)
+
+                // Parse rate: Remove "SAR " and any other non-numeric chars except dot
+                const numericRate = initialData.rate.replace(/[^0-9.]/g, "")
+                setRate(numericRate)
+
+                // Set details
+                setThickness(initialData.details.thickness || "")
+                setDimensions(initialData.details.dimensions || "")
+                setColor(initialData.details.color || "")
+                setGrade(initialData.details.grade || "")
+            } else {
+                // Reset for add mode
+                setDescription(defaultDescription)
+                setCategory("")
+                setRate("")
+                setUnit("Sheet")
+                setThickness("")
+                setDimensions("")
+                setColor("")
+                setGrade("")
+            }
         }
-    }, [open, defaultDescription])
+    }, [open, mode, initialData, defaultDescription])
 
     const { categories, units } = useMemo(() => {
         const uniqueCategories = Array.from(new Set((materialsData as Material[]).map(m => m.category))).sort()
@@ -57,42 +84,35 @@ export function AddMaterialDialog({
         const details: MaterialDetails = {
             thickness,
             dimensions,
-            size: "", // Not exposing size/length for now as they seem redundant or specific
+            size: "",
             length: "",
             color,
             grade,
         }
 
-        const newMaterial: Material = {
-            id: `N-${Math.floor(100 + Math.random() * 900)}`,
+        const materialToSave: Material = {
+            id: mode === "edit" && initialData ? initialData.id : `N-${Math.floor(100 + Math.random() * 900)}`,
             category: category.toUpperCase() || "NEW",
             description,
             details,
-            qty: "1", // Default qty string as in JSON
+            qty: "1",
             unit,
             rate: rate ? `SAR ${parseFloat(rate).toFixed(2)}` : "SAR 0.00",
         }
 
-        onAdd(newMaterial)
+        onSave(materialToSave)
         onOpenChange(false)
-
-        // Reset form
-        setDescription("")
-        setCategory("")
-        setRate("")
-        setThickness("")
-        setDimensions("")
-        setColor("")
-        setGrade("")
     }
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-[500px]">
                 <DialogHeader>
-                    <DialogTitle>Add New Material</DialogTitle>
+                    <DialogTitle>{mode === "edit" ? "Edit Material" : "Add New Material"}</DialogTitle>
                     <DialogDescription>
-                        Details for the new material. Click save when you're done.
+                        {mode === "edit"
+                            ? "Update the details for this material."
+                            : "Details for the new material."} Click save when you're done.
                     </DialogDescription>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="grid gap-4 py-4">

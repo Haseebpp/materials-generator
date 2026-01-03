@@ -1,4 +1,5 @@
-import { Trash2 } from "lucide-react"
+import { useState } from "react"
+import { Trash2, Pencil, Plus } from "lucide-react"
 import type { BOQItem, Material } from "@/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,6 +12,7 @@ import {
     TableRow,
 } from "@/components/ui/table"
 import { MaterialCombobox } from "./MaterialCombobox"
+import { MaterialDialog } from "./MaterialDialog"
 
 interface BOQTableProps {
     items: BOQItem[]
@@ -18,10 +20,23 @@ interface BOQTableProps {
     onRemove: (id: string) => void
     onAddMaterial: (material: Material) => void
     onUpdateRemark: (id: string, remark: string) => void
+    onUpdateMaterial: (material: Material) => void
     isPriceVisible: boolean
 }
 
-export function BOQTable({ items, onUpdateQuantity, onRemove, onAddMaterial, onUpdateRemark, isPriceVisible }: BOQTableProps) {
+export function BOQTable({
+    items,
+    onUpdateQuantity,
+    onRemove,
+    onAddMaterial,
+    onUpdateRemark,
+    onUpdateMaterial, // New prop
+    isPriceVisible
+}: BOQTableProps) {
+    const [editingItem, setEditingItem] = useState<Material | null>(null)
+    const [isDialogOpen, setIsDialogOpen] = useState(false)
+    const [dialogMode, setDialogMode] = useState<"add" | "edit">("add")
+
     const parseRate = (rateStr: string) => {
         const num = parseFloat(rateStr.replace(/[^0-9.]/g, ""))
         return isNaN(num) ? 0 : num
@@ -40,6 +55,26 @@ export function BOQTable({ items, onUpdateQuantity, onRemove, onAddMaterial, onU
         }, 0)
     }
 
+    const handleEdit = (item: Material) => {
+        setEditingItem(item)
+        setDialogMode("edit")
+        setIsDialogOpen(true)
+    }
+
+    const handleQuickAdd = () => {
+        setEditingItem(null)
+        setDialogMode("add")
+        setIsDialogOpen(true)
+    }
+
+    const handleSaveDialog = (material: Material) => {
+        if (dialogMode === "edit") {
+            onUpdateMaterial(material)
+        } else {
+            onAddMaterial(material)
+        }
+    }
+
     return (
         <div className="rounded-md border bg-card shadow-sm">
             <Table>
@@ -52,7 +87,7 @@ export function BOQTable({ items, onUpdateQuantity, onRemove, onAddMaterial, onU
                         <TableHead className="w-[100px] text-right">Qty</TableHead>
                         {isPriceVisible && <TableHead className="text-right">Total</TableHead>}
                         <TableHead>Remark</TableHead>
-                        <TableHead className="w-[50px]"></TableHead>
+                        <TableHead className="w-[100px] text-right">Actions</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -61,7 +96,15 @@ export function BOQTable({ items, onUpdateQuantity, onRemove, onAddMaterial, onU
                         const total = rate * item.boqQty
 
                         return (
-                            <TableRow key={item.id}>
+                            <TableRow
+                                key={item.id}
+                                onDoubleClick={(e) => {
+                                    // Prevent edit if clicking on input fields
+                                    if ((e.target as HTMLElement).tagName === 'INPUT') return;
+                                    handleEdit(item)
+                                }}
+                                className="group cursor-pointer hover:bg-muted/50 transition-colors"
+                            >
                                 <TableCell className="font-mono text-xs text-muted-foreground">{items.indexOf(item) + 1}</TableCell>
                                 <TableCell className="font-medium text-sm">
                                     <div className="flex flex-col gap-1.5">
@@ -97,8 +140,9 @@ export function BOQTable({ items, onUpdateQuantity, onRemove, onAddMaterial, onU
                                         <Input
                                             type="number"
                                             min="1"
-                                            className="h-8 w-20 text-right"
+                                            className="h-8 w-20 text-right touch-none"
                                             value={item.boqQty}
+                                            onClick={(e) => e.stopPropagation()}
                                             onChange={(e) =>
                                                 onUpdateQuantity(
                                                     item.id,
@@ -121,22 +165,70 @@ export function BOQTable({ items, onUpdateQuantity, onRemove, onAddMaterial, onU
                                         className="h-8 min-w-[150px]"
                                         placeholder="Add remark..."
                                         value={item.remarks || ""}
+                                        onClick={(e) => e.stopPropagation()}
                                         onChange={(e) => onUpdateRemark(item.id, e.target.value)}
                                     />
                                 </TableCell>
-                                <TableCell>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                        onClick={() => onRemove(item.id)}
-                                    >
-                                        <Trash2 className="h-4 w-4" />
-                                    </Button>
+                                <TableCell className="text-right">
+                                    <div className="flex items-center justify-end gap-1">
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-8 w-8 text-muted-foreground hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity"
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                handleEdit(item)
+                                            }}
+                                            title="Edit Material"
+                                        >
+                                            <Pencil className="h-4 w-4" />
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-8 w-8 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                onRemove(item.id)
+                                            }}
+                                            title="Remove Item"
+                                        >
+                                            <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                    </div>
                                 </TableCell>
                             </TableRow>
                         )
                     })}
+
+                    {/* Quick Add Blank Row */}
+                    <TableRow
+                        className="hover:bg-muted/50 cursor-pointer border-dashed border-b-2"
+                        onDoubleClick={handleQuickAdd}
+                    >
+                        <TableCell className="font-mono text-xs text-muted-foreground">{items.length + 1}</TableCell>
+                        <TableCell colSpan={isPriceVisible ? 5 : 3}>
+                            <div className="flex items-center text-muted-foreground text-sm italic h-8">
+                                <span className="opacity-50">Double-click to add new material...</span>
+                            </div>
+                        </TableCell>
+                        <TableCell>
+                        </TableCell>
+                        <TableCell className="text-right">
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 text-muted-foreground hover:text-primary"
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleQuickAdd()
+                                }}
+                                title="Add New Material"
+                            >
+                                <Plus className="h-4 w-4" />
+                            </Button>
+                        </TableCell>
+                    </TableRow>
 
                     <TableRow className="bg-muted/30 hover:bg-muted/50">
                         <TableCell colSpan={2} className="p-2">
@@ -162,6 +254,14 @@ export function BOQTable({ items, onUpdateQuantity, onRemove, onAddMaterial, onU
                     </div>
                 )}
             </div>
+
+            <MaterialDialog
+                open={isDialogOpen}
+                onOpenChange={setIsDialogOpen}
+                onSave={handleSaveDialog}
+                initialData={editingItem}
+                mode={dialogMode}
+            />
         </div>
     )
 }

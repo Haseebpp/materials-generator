@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/popover"
 import type { Material } from "@/types"
 import materialsData from "@/data/materials.json"
-import { AddMaterialDialog } from "./AddMaterialDialog"
+import { MaterialDialog } from "./MaterialDialog"
 
 interface MaterialComboboxProps {
     onSelect: (material: Material) => void
@@ -135,10 +135,10 @@ export function MaterialCombobox({ onSelect, isPriceVisible = true }: MaterialCo
                 </PopoverContent>
             </Popover>
 
-            <AddMaterialDialog
+            <MaterialDialog
                 open={showAddDialog}
                 onOpenChange={setShowAddDialog}
-                onAdd={onSelect}
+                onSave={onSelect}
                 defaultDescription={search}
             />
         </>
