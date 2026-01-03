@@ -89,25 +89,24 @@ export function MaterialList({ onAdd, isPriceVisible }: MaterialListProps) {
                                                 >
                                                     <div className="flex flex-col min-w-0 pr-2">
                                                         <span className="text-sm font-medium truncate" title={material.description}>
+                                                            <span className="font-mono text-muted-foreground mr-2">{material.id}.</span>
                                                             {material.description}
                                                         </span>
-                                                        <div className="flex flex-wrap gap-1.5 mt-1">
-                                                            {Object.entries(material.details).map(([key, value]) => {
-                                                                if (!value) return null
-                                                                const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-                                                                return (
-                                                                    <span
-                                                                        key={key}
-                                                                        className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-100 dark:border-blue-800"
-                                                                    >
-                                                                        {label}: {value}
-                                                                    </span>
-                                                                )
-                                                            })}
+                                                        <div className="text-[10px] font-medium text-muted-foreground mt-0.5">
+                                                            {Object.entries(material.details)
+                                                                .filter(([_, value]) => value) // Only showing non-empty values
+                                                                .map(([key, value]) => {
+                                                                    const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+                                                                    return `${label}: ${value}`
+                                                                })
+                                                                .join(" • ")}
                                                             {isPriceVisible && (
-                                                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300 border border-green-100 dark:border-green-800">
-                                                                    {material.rate}
-                                                                </span>
+                                                                <>
+                                                                    <span className="mx-1">•</span>
+                                                                    <span className="text-[10px] font-medium text-green-600 dark:text-green-400">
+                                                                        {material.rate}
+                                                                    </span>
+                                                                </>
                                                             )}
                                                         </div>
                                                     </div>

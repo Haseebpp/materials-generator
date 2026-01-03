@@ -17,10 +17,11 @@ interface BOQTableProps {
     onUpdateQuantity: (id: string, qty: number) => void
     onRemove: (id: string) => void
     onAddMaterial: (material: Material) => void
+    onUpdateRemark: (id: string, remark: string) => void
     isPriceVisible: boolean
 }
 
-export function BOQTable({ items, onUpdateQuantity, onRemove, onAddMaterial, isPriceVisible }: BOQTableProps) {
+export function BOQTable({ items, onUpdateQuantity, onRemove, onAddMaterial, onUpdateRemark, isPriceVisible }: BOQTableProps) {
     const parseRate = (rateStr: string) => {
         const num = parseFloat(rateStr.replace(/[^0-9.]/g, ""))
         return isNaN(num) ? 0 : num
@@ -44,12 +45,13 @@ export function BOQTable({ items, onUpdateQuantity, onRemove, onAddMaterial, isP
             <Table>
                 <TableHeader>
                     <TableRow>
-                        <TableHead className="w-[80px]">ID</TableHead>
+                        <TableHead className="w-[50px]">No.</TableHead>
                         <TableHead className="w-[40%]">Description</TableHead>
                         <TableHead>Category</TableHead>
                         {isPriceVisible && <TableHead className="text-right">Rate</TableHead>}
                         <TableHead className="w-[100px] text-right">Qty</TableHead>
                         {isPriceVisible && <TableHead className="text-right">Total</TableHead>}
+                        <TableHead>Remark</TableHead>
                         <TableHead className="w-[50px]"></TableHead>
                     </TableRow>
                 </TableHeader>
@@ -60,19 +62,28 @@ export function BOQTable({ items, onUpdateQuantity, onRemove, onAddMaterial, isP
 
                         return (
                             <TableRow key={item.id}>
-                                <TableCell className="font-mono text-xs">{item.id}</TableCell>
+                                <TableCell className="font-mono text-xs text-muted-foreground">{items.indexOf(item) + 1}</TableCell>
                                 <TableCell className="font-medium text-sm">
-                                    <div className="flex flex-col">
+                                    <div className="flex flex-col gap-1.5">
                                         <span>{item.description}</span>
-                                        <span className="text-[10px] text-muted-foreground">
+                                        <div className="flex flex-wrap gap-2">
+                                            <span className="bg-muted px-1.5 py-0.5 rounded text-[10px] text-muted-foreground font-mono">
+                                                ID: {item.id}
+                                            </span>
                                             {Object.entries(item.details)
-                                                .filter(([_, value]) => value) // Only showing non-empty values
+                                                .filter(([_, value]) => value)
                                                 .map(([key, value]) => {
                                                     const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-                                                    return `${label}: ${value}`
-                                                })
-                                                .join(" • ")}
-                                        </span>
+                                                    return (
+                                                        <span
+                                                            key={key}
+                                                            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-100 dark:border-blue-800"
+                                                        >
+                                                            {label}: {value}
+                                                        </span>
+                                                    )
+                                                })}
+                                        </div>
                                     </div>
                                 </TableCell>
                                 <TableCell className="text-xs text-muted-foreground">{item.category}</TableCell>
@@ -106,6 +117,14 @@ export function BOQTable({ items, onUpdateQuantity, onRemove, onAddMaterial, isP
                                     </TableCell>
                                 )}
                                 <TableCell>
+                                    <Input
+                                        className="h-8 min-w-[150px]"
+                                        placeholder="Add remark..."
+                                        value={item.remarks || ""}
+                                        onChange={(e) => onUpdateRemark(item.id, e.target.value)}
+                                    />
+                                </TableCell>
+                                <TableCell>
                                     <Button
                                         variant="ghost"
                                         size="icon"
@@ -123,7 +142,7 @@ export function BOQTable({ items, onUpdateQuantity, onRemove, onAddMaterial, isP
                         <TableCell colSpan={2} className="p-2">
                             <MaterialCombobox onSelect={onAddMaterial} isPriceVisible={isPriceVisible} />
                         </TableCell>
-                        <TableCell colSpan={isPriceVisible ? 5 : 3} className="text-center text-xs text-muted-foreground italic">
+                        <TableCell colSpan={isPriceVisible ? 6 : 4} className="text-center text-xs text-muted-foreground italic">
                             Search and select a material to add to BOQ
                         </TableCell>
                     </TableRow>
