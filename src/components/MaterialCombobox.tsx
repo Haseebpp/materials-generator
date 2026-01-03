@@ -20,9 +20,10 @@ import { AddMaterialDialog } from "./AddMaterialDialog"
 
 interface MaterialComboboxProps {
     onSelect: (material: Material) => void
+    isPriceVisible?: boolean
 }
 
-export function MaterialCombobox({ onSelect }: MaterialComboboxProps) {
+export function MaterialCombobox({ onSelect, isPriceVisible = true }: MaterialComboboxProps) {
     const [open, setOpen] = React.useState(false)
     const [search, setSearch] = React.useState("")
 
@@ -87,27 +88,32 @@ export function MaterialCombobox({ onSelect }: MaterialComboboxProps) {
                                     >
                                         <div className="flex w-full items-center justify-between">
                                             <span className="font-semibold text-sm">{material.description}</span>
-                                            <span className="font-mono text-xs font-bold text-primary">
-                                                {material.rate}
-                                            </span>
+                                            {isPriceVisible ? (
+                                                <span className="font-mono text-xs font-bold text-primary shrink-0 ml-2">
+                                                    {material.rate}
+                                                </span>
+                                            ) : (
+                                                <div className="flex items-center gap-1.5 text-xs shrink-0 ml-2">
+                                                    <span className="text-muted-foreground">{material.category}</span>
+                                                    <span className="font-medium">1</span>
+                                                    <span className="text-muted-foreground">{material.unit}</span>
+                                                </div>
+                                            )}
                                         </div>
                                         <div className="flex flex-wrap gap-2 text-xs text-muted-foreground w-full">
-                                            <span className="bg-muted px-1.5 py-0.5 rounded">ID: {material.id}</span>
-                                            {material.details.thickness && (
-                                                <span className="bg-muted px-1.5 py-0.5 rounded">
-                                                    {material.details.thickness}
-                                                </span>
-                                            )}
-                                            {material.details.dimensions && (
-                                                <span className="bg-muted px-1.5 py-0.5 rounded">
-                                                    {material.details.dimensions}
-                                                </span>
-                                            )}
-                                            {material.category && (
-                                                <span className="bg-muted px-1.5 py-0.5 rounded text-accent-foreground bg-accent/20">
-                                                    {material.category}
-                                                </span>
-                                            )}
+                                            <span className="bg-muted px-1.5 py-0.5 rounded text-[10px]">ID: {material.id}</span>
+                                            {Object.entries(material.details).map(([key, value]) => {
+                                                if (!value) return null
+                                                const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+                                                return (
+                                                    <span
+                                                        key={key}
+                                                        className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-100 dark:border-blue-800"
+                                                    >
+                                                        {label}: {value}
+                                                    </span>
+                                                )
+                                            })}
                                         </div>
                                     </CommandItem>
                                 ))}

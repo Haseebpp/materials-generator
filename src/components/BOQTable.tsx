@@ -121,7 +121,7 @@ export function BOQTable({ items, onUpdateQuantity, onRemove, onAddMaterial, isP
 
                     <TableRow className="bg-muted/30 hover:bg-muted/50">
                         <TableCell colSpan={2} className="p-2">
-                            <MaterialCombobox onSelect={onAddMaterial} />
+                            <MaterialCombobox onSelect={onAddMaterial} isPriceVisible={isPriceVisible} />
                         </TableCell>
                         <TableCell colSpan={isPriceVisible ? 5 : 3} className="text-center text-xs text-muted-foreground italic">
                             Search and select a material to add to BOQ

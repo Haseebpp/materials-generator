@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import {
     Dialog,
@@ -10,7 +10,9 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { CreatableCombobox } from "@/components/ui/creatable-combobox"
 import type { Material, MaterialDetails } from "@/types"
+import materialsData from "@/data/materials.json"
 
 interface AddMaterialDialogProps {
     open: boolean
@@ -43,6 +45,12 @@ export function AddMaterialDialog({
         }
     }, [open, defaultDescription])
 
+    const { categories, units } = useMemo(() => {
+        const uniqueCategories = Array.from(new Set((materialsData as Material[]).map(m => m.category))).sort()
+        const uniqueUnits = Array.from(new Set((materialsData as Material[]).map(m => m.unit))).sort()
+        return { categories: uniqueCategories, units: uniqueUnits }
+    }, [])
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()
 
@@ -56,8 +64,8 @@ export function AddMaterialDialog({
         }
 
         const newMaterial: Material = {
-            id: `custom-${Date.now()}`,
-            category: category.toUpperCase() || "CUSTOM",
+            id: `N-${Math.floor(100 + Math.random() * 900)}`,
+            category: category.toUpperCase() || "NEW",
             description,
             details,
             qty: "1", // Default qty string as in JSON
@@ -80,9 +88,9 @@ export function AddMaterialDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[425px]">
+            <DialogContent className="sm:max-w-[500px]">
                 <DialogHeader>
-                    <DialogTitle>Add Custom Material</DialogTitle>
+                    <DialogTitle>Add New Material</DialogTitle>
                     <DialogDescription>
                         Details for the new material. Click save when you're done.
                     </DialogDescription>
@@ -104,13 +112,15 @@ export function AddMaterialDialog({
                         <Label htmlFor="category" className="text-right">
                             Category
                         </Label>
-                        <Input
-                            id="category"
-                            value={category}
-                            onChange={(e) => setCategory(e.target.value)}
-                            className="col-span-3"
-                            placeholder="e.g. WOOD, ACRYLIC"
-                        />
+                        <div className="col-span-3">
+                            <CreatableCombobox
+                                options={categories}
+                                value={category}
+                                onChange={setCategory}
+                                placeholder="Select or type category..."
+                                emptyText="No category found."
+                            />
+                        </div>
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="rate" className="text-right">
@@ -131,12 +141,15 @@ export function AddMaterialDialog({
                         <Label htmlFor="unit" className="text-right">
                             Unit
                         </Label>
-                        <Input
-                            id="unit"
-                            value={unit}
-                            onChange={(e) => setUnit(e.target.value)}
-                            className="col-span-3"
-                        />
+                        <div className="col-span-3">
+                            <CreatableCombobox
+                                options={units}
+                                value={unit}
+                                onChange={setUnit}
+                                placeholder="Select or type unit..."
+                                emptyText="No unit found."
+                            />
+                        </div>
                     </div>
 
                     <div className="border-t pt-4 mt-2">

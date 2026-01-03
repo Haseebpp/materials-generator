@@ -73,10 +73,12 @@ export function MaterialList({ onAdd, isPriceVisible }: MaterialListProps) {
                             {Object.entries(groupedMaterials).map(([category, items]) => (
                                 <AccordionItem key={category} value={category} className="border-b-0 mb-2 bg-card">
                                     <AccordionTrigger className="px-3 py-2 hover:bg-muted/50 rounded-md text-sm font-semibold uppercase text-muted-foreground hover:no-underline hover:text-foreground group data-[state=open]:text-foreground data-[state=open]:bg-muted/50">
-                                        {category}
-                                        <span className="ml-2 bg-muted-foreground/10 text-muted-foreground text-[10px] px-1.5 py-0.5 rounded-full group-hover:bg-background group-hover:text-foreground transition-colors">
-                                            {items.length}
-                                        </span>
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <span className="truncate" title={category}>{category}</span>
+                                            <span className="bg-muted-foreground/10 text-muted-foreground text-[10px] px-1.5 py-0.5 rounded-full group-hover:bg-background group-hover:text-foreground transition-colors shrink-0">
+                                                {items.length}
+                                            </span>
+                                        </div>
                                     </AccordionTrigger>
                                     <AccordionContent className="pt-1 pb-2">
                                         <div className="space-y-1 pl-1">

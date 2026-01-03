@@ -19,4 +19,5 @@ export interface Material {
 
 export interface BOQItem extends Material {
     boqQty: number;
+    remarks?: string;
 }
