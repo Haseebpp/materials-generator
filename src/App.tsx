@@ -104,6 +104,10 @@ function App() {
     )
   }
 
+  const handleReorderItems = (reorderedItems: BOQItem[]) => {
+    setBoqItems(reorderedItems)
+  }
+
   const handleReset = () => {
     if (confirm("Are you sure you want to clear the BOQ?")) {
       setBoqItems([])
@@ -148,7 +152,7 @@ function App() {
 
           {/* Resizable Handle */}
           <div
-            className="w-4 bg-transparent hover:bg-primary/10 cursor-col-resize flex items-center justify-center relative group transition-colors -ml-2 z-10 hidden lg:flex"
+            className="w-3 bg-transparent hover:bg-primary/10 cursor-col-resize flex items-center justify-center relative group transition-colors -ml-0 z-10 hidden lg:flex"
             onMouseDown={startResizing}
           >
             {/* Visible line */}
@@ -169,6 +173,7 @@ function App() {
                 onAddMaterial={handleAddMaterial}
                 onUpdateRemark={handleUpdateRemark}
                 onUpdateMaterial={handleUpdateMaterial}
+                onReorder={handleReorderItems}
                 isPriceVisible={isPriceVisible}
               />
             </ScrollArea>

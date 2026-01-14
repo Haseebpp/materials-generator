@@ -44,13 +44,45 @@ export async function generateMaterialList(
       - Electrical: Led Stips
       - Electrical: TV 85 INCH TCL
       - Paint: PU Paint
-      - Paint: PU Primer
       
       Return the output as a valid JSON object with a key "items" containing an array of objects with "description", "qty" (string usually representing number), and "unit" (string). 
       Do NOT include markdown formatting (like \`\`\`json). Just return the raw JSON.
       
       Description: ${description}
     `;
+
+        //     general Material Examples:
+        //   - MDF: MDF 18 mm (1.22×2.44 m )
+        //   - MDF: MDF 8 mm (1.22×2.44 m )
+        //   - MDF: MDF 12 mm (1.22×2.44 m )
+        //   - MDF: BENDPLY 8 mm (1.22×2.44 m )
+        //   - Wood: White wood
+        //   - Acrylics: Acrylic Clear 3 mm (1.22×2.44)
+        //   - Acrylics: Acrylic Lightpass 3 mm (1.22×2.44) (If Lightbox visuals is essential)
+        //   - Acrylics: Acrylic Clear 3 mm (1.22×2.44) (If Lightbox visuals is essential)
+        //   - Acrylics: Acrylic Frosted 12 mm (1.22×2.44) (If Pushthrough logo is essential)
+        //   - Glass: Glass Clear 6 mm (Give the Square Meter)
+        //   - Glass: Glass Mirror 6 mm (Give the Square Meter)
+        //   - Metal: MS Sheet 2 mm (1.22×2.44 m)
+        //   - Metal: MS TUBE 40×40 mm 2 mm Thick 6m
+        //   - Graphics: Sticker(Give overall square meter)
+        //   - Hardware: Hinges(if Door essential)
+        //   - Hardware: Drawer Runners(if Drawer essential)
+        //   - Hardware: Screws(if MDF essential)
+        //   - Hardware: Gun Nails(if MDF essential)
+        //   - Adhesive: Fevicol(if MDF essential)
+        //   - Adhesive: Silicone(if Glass essential)
+        //   - Adhesive: Superglue(if MDF essential)
+        //   - Electrical: LED Strip
+        //   - Electrical: LED profile
+        //   - Electrical: 0.5 mm Wire
+        //   - Electrical: 2.5 mm Wire
+        //   - Electrical: Connector
+        //   - Electrical: Transformer
+        //   - Electrical: Socket
+        //   - Paint: Paint(Give the Square Meter)
+        //   - Paint: Primer(Give the Square Meter)
+        //   - Paint: Itch Primer(Give the Square Meter)
 
         const result = await model.generateContent([
             prompt,
@@ -68,7 +100,7 @@ export async function generateMaterialList(
         const content = JSON.parse(cleanedText);
 
         return {
-            items: content.items || [],
+            items: Array.isArray(content) ? content : (content.items || []),
             rawText: text
         };
 

@@ -39,6 +39,8 @@ export function MaterialDialog({
     // Details
     const [thickness, setThickness] = useState("")
     const [dimensions, setDimensions] = useState("")
+    const [size, setSize] = useState("")
+    const [length, setLength] = useState("")
     const [color, setColor] = useState("")
     const [grade, setGrade] = useState("")
 
@@ -56,6 +58,8 @@ export function MaterialDialog({
                 // Set details
                 setThickness(initialData.details.thickness || "")
                 setDimensions(initialData.details.dimensions || "")
+                setSize(initialData.details.size || "")
+                setLength(initialData.details.length || "")
                 setColor(initialData.details.color || "")
                 setGrade(initialData.details.grade || "")
             } else {
@@ -66,6 +70,8 @@ export function MaterialDialog({
                 setUnit("Sheet")
                 setThickness("")
                 setDimensions("")
+                setSize("")
+                setLength("")
                 setColor("")
                 setGrade("")
             }
@@ -84,8 +90,8 @@ export function MaterialDialog({
         const details: MaterialDetails = {
             thickness,
             dimensions,
-            size: "",
-            length: "",
+            size,
+            length,
             color,
             grade,
         }
@@ -205,6 +211,39 @@ export function MaterialDialog({
                                     id="color"
                                     value={color}
                                     onChange={(e) => setColor(e.target.value)}
+                                    className="col-span-3 h-8"
+                                />
+                            </div>
+                            <div className="grid grid-cols-4 items-center gap-4">
+                                <Label htmlFor="grade" className="text-right text-xs">
+                                    Grade
+                                </Label>
+                                <Input
+                                    id="grade"
+                                    value={grade}
+                                    onChange={(e) => setGrade(e.target.value)}
+                                    className="col-span-3 h-8"
+                                />
+                            </div>
+                            <div className="grid grid-cols-4 items-center gap-4">
+                                <Label htmlFor="size" className="text-right text-xs">
+                                    Size
+                                </Label>
+                                <Input
+                                    id="size"
+                                    value={size}
+                                    onChange={(e) => setSize(e.target.value)}
+                                    className="col-span-3 h-8"
+                                />
+                            </div>
+                            <div className="grid grid-cols-4 items-center gap-4">
+                                <Label htmlFor="length" className="text-right text-xs">
+                                    Length
+                                </Label>
+                                <Input
+                                    id="length"
+                                    value={length}
+                                    onChange={(e) => setLength(e.target.value)}
                                     className="col-span-3 h-8"
                                 />
                             </div>

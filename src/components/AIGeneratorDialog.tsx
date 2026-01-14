@@ -1,22 +1,21 @@
-
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Sparkles, Upload, Loader2, Settings, Copy, Check, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Sparkles, Upload, Loader2, Settings, Copy, Check, ArrowLeftRight } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { BOQTable } from "@/components/BOQTable";
 import { generateMaterialList } from "@/lib/aiService";
-import type { BOQItem } from "@/types";
+import type { BOQItem, Material } from "@/types";
 
 interface AIGeneratorDialogProps {
     onAddMaterials: (items: BOQItem[]) => void;
 }
 
-type Step = "input" | "processing" | "review" | "final";
+type Step = "input" | "processing" | "review";
 
 export function AIGeneratorDialog({ onAddMaterials }: AIGeneratorDialogProps) {
     const [open, setOpen] = useState(false);
@@ -24,16 +23,18 @@ export function AIGeneratorDialog({ onAddMaterials }: AIGeneratorDialogProps) {
     const [description, setDescription] = useState("");
     const [files, setFiles] = useState<File[]>([]);
     const [apiKey, setApiKey] = useState(() => localStorage.getItem("openai_api_key") || "");
-    const [generatedItems, setGeneratedItems] = useState<Partial<BOQItem>[]>([]);
+    const [generatedItems, setGeneratedItems] = useState<BOQItem[]>([]);
     const [copied, setCopied] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isDragging, setIsDragging] = useState(false);
-    const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
-    // Resize Logic
+    // Resize Logic (percentage-based)
     const [sidebarWidth, setSidebarWidth] = useState(50); // percentage
     const [isResizing, setIsResizing] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
+
+    // Counter for simple ID generation
+    const generatedCounterRef = useRef(1);
 
     const startResizing = useCallback((e: React.MouseEvent) => {
         e.preventDefault();
@@ -122,7 +123,20 @@ export function AIGeneratorDialog({ onAddMaterials }: AIGeneratorDialogProps) {
                 };
             });
 
-            setGeneratedItems(parsedItems);
+            // Convert to full BOQItem objects with simple IDs
+            const validItems = parsedItems.map((item) => ({
+                id: `G-${String(generatedCounterRef.current++).padStart(3, '0')}`,
+                category: item.category || "Generated",
+                description: item.description || "Unknown Material",
+                qty: String(item.qty || 0),
+                unit: item.unit || "PCS",
+                rate: "0",
+                details: {},
+                boqQty: Number(item.qty) || 1,
+                remarks: ""
+            })) as BOQItem[];
+
+            setGeneratedItems(validItems);
             setStep("review");
         } catch (error) {
             console.error(error);
@@ -132,16 +146,41 @@ export function AIGeneratorDialog({ onAddMaterials }: AIGeneratorDialogProps) {
         }
     };
 
-    const handleUpdateItem = (index: number, field: keyof BOQItem, value: any) => {
-        const newItems = [...generatedItems];
-        newItems[index] = { ...newItems[index], [field]: value };
-        setGeneratedItems(newItems);
+    const handleUpdateQuantity = (id: string, qty: number) => {
+        setGeneratedItems(prev =>
+            prev.map(item => item.id === id ? { ...item, boqQty: qty } : item)
+        );
+    };
+
+    const handleRemove = (id: string) => {
+        setGeneratedItems(prev => prev.filter(item => item.id !== id));
+    };
+
+    const handleUpdateMaterial = (material: Material) => {
+        setGeneratedItems(prev =>
+            prev.map(item => item.id === material.id ? { ...item, ...material } : item)
+        );
+    };
+
+    const handleAddMaterial = (material: Material) => {
+        const newItem: BOQItem = {
+            ...material,
+            id: `G-${String(generatedCounterRef.current++).padStart(3, '0')}`,
+            boqQty: 1,
+            remarks: ""
+        };
+        setGeneratedItems(prev => [...prev, newItem]);
+    };
+
+    // Dummy handler for remark (not used but required by BOQTable)
+    const handleUpdateRemark = (id: string, remark: string) => {
+        // No-op: remarks are not editable in AI generator
     };
 
     const handleCopyToClipboard = () => {
-        const header = "S:NO\tDESCRIPTION\tCATEGORY\tQTY UNITS\tREMARKS";
+        const header = "S:NO\tDESCRIPTION\tCATEGORY\tQTY UNITS";
         const rows = generatedItems.map((item, idx) => {
-            return `${idx + 1}\t${item.description || ""}\t${item.category || ""}\t${item.qty || 0} ${item.unit || ""}\t${item.remarks || ""}`;
+            return `${idx + 1}\t${item.description || ""}\t${item.category || ""}\t${item.boqQty || 0} ${item.unit || ""}`;
         }).join("\n");
 
         navigator.clipboard.writeText(`${header}\n${rows}`);
@@ -150,25 +189,13 @@ export function AIGeneratorDialog({ onAddMaterials }: AIGeneratorDialogProps) {
     };
 
     const handleAddToBOQ = () => {
-        // Convert Partial<BOQItem> to BOQItem (ensuring required fields)
-        const validItems = generatedItems.map((item, idx) => ({
-            id: `gen-${Date.now()}-${idx}`,
-            category: item.category || "Generated",
-            description: item.description || "Unknown Material",
-            qty: String(item.qty || 0),
-            unit: item.unit || "PCS",
-            rate: "0",
-            details: {},
-            boqQty: Number(item.qty) || 1,
-            ...item
-        })) as BOQItem[];
-
-        onAddMaterials(validItems);
+        onAddMaterials(generatedItems);
         setOpen(false);
         setStep("input");
         setFiles([]);
         setDescription("");
         setGeneratedItems([]);
+        generatedCounterRef.current = 1; // Reset counter
     };
 
     return (
@@ -180,29 +207,25 @@ export function AIGeneratorDialog({ onAddMaterials }: AIGeneratorDialogProps) {
                 </Button>
             </DialogTrigger>
             <DialogContent className="max-w-[95vw] w-full h-[90vh] flex flex-col p-0 gap-0">
-                <DialogHeader className="px-6 py-4 border-b flex-shrink-0 flex flex-row items-center justify-between space-y-0">
+                <DialogHeader className="px-6 py-4 border-b flex-shrink-0">
                     <DialogTitle className="flex items-center gap-2 text-xl">
                         <Sparkles className="h-5 w-5 text-indigo-500" />
                         AI Material Generator
                     </DialogTitle>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                        title={isSidebarOpen ? "Close Sidebar" : "Open Sidebar"}
-                    >
-                        {isSidebarOpen ? <PanelLeftClose className="h-5 w-5" /> : <PanelLeftOpen className="h-5 w-5" />}
-                    </Button>
                 </DialogHeader>
 
-                <div className="flex-1 flex overflow-hidden w-full user-select-none" ref={containerRef}>
+                <div className={`flex-1 flex overflow-hidden w-full ${isResizing ? 'select-none' : ''}`} ref={containerRef}>
                     {/* Left Sidebar - Input */}
-                    {isSidebarOpen && (
-                        <div
-                            className="flex-shrink-0 border-r flex flex-col bg-muted/10 transition-all ease-in-out relative group"
-                            style={{ width: `${sidebarWidth}%`, transition: isResizing ? 'none' : 'width 300ms ease-in-out' }}
-                        >
-                            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                    <aside
+                        className="flex-shrink-0 flex flex-col h-full bg-card"
+                        style={{ width: `${sidebarWidth}%` }}
+                    >
+                        <div className="p-4 border-b space-y-4">
+                            <h2 className="font-semibold text-lg tracking-tight">Input</h2>
+                        </div>
+
+                        <ScrollArea className="flex-1" fadeColor="from-card">
+                            <div className="p-6 space-y-6">
                                 <div className="space-y-2">
                                     <Label className="text-base font-semibold">Description / Prompt</Label>
                                     <Textarea
@@ -294,79 +317,96 @@ export function AIGeneratorDialog({ onAddMaterials }: AIGeneratorDialogProps) {
                                     </Popover>
                                 </div>
                             </div>
+                        </ScrollArea>
 
-                            <div className="p-6 border-t bg-background">
-                                <Button
-                                    onClick={handleGenerate}
-                                    disabled={(!description && files.length === 0) || step === "processing"}
-                                    className="w-full h-12 text-base shadow-md bg-indigo-600 hover:bg-indigo-700 transition-all"
-                                >
-                                    {step === "processing" ? (
-                                        <>
-                                            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                                            Generating...
-                                        </>
-                                    ) : generatedItems.length > 0 ? (
-                                        <>
-                                            <Sparkles className="mr-2 h-5 w-5" />
-                                            Regenerate List
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Sparkles className="mr-2 h-5 w-5" />
-                                            Generate List
-                                        </>
-                                    )}
-                                </Button>
-                                <Button
-                                    variant="outline"
-                                    onClick={() => {
-                                        const mockData = [
-                                            { description: "MDF PLAIN 18MM (1.22X2.44M)", category: "Wood", qty: "3", unit: "SHEET", remarks: "" },
-                                            { description: "MDF PLAIN 12MM (1.22X2.44M)", category: "Wood", qty: "1", unit: "SHEET", remarks: "" },
-                                            { description: "ACRYLIC CLEAR 5MM (1.22X2.44M)", category: "Plastic", qty: "1.5", unit: "SHEET", remarks: "" },
-                                            { description: "ACRYLIC FLUTED CLEAR (1.22X2.44M)", category: "Plastic", qty: "0.5", unit: "SHEET", remarks: "" },
-                                            { description: "MS SHEET 2MM (1.22X2.44M)", category: "Metal", qty: "0.5", unit: "SHEET", remarks: "" },
-                                            { description: "GRAPHICS VINYL STICKER", category: "Graphics", qty: "5", unit: "SQM", remarks: "" },
-                                            { description: "BUSH", category: "Hardware", qty: "4", unit: "PCS", remarks: "" },
-                                            { description: "FEVICOL", category: "Consumable", qty: "2", unit: "KG", remarks: "" },
-                                            { description: "CHLOROFORM", category: "Consumable", qty: "1", unit: "0.5", remarks: "" },
-                                            { description: "SUPER GLUE", category: "Consumable", qty: "5", unit: "NOS", remarks: "" },
-                                            { description: "SCREWS", category: "Hardware", qty: "100", unit: "PCS", remarks: "" },
-                                            { description: "GUN NAILS", category: "Hardware", qty: "1", unit: "PKT", remarks: "" },
-                                            { description: "SANDING PAPER", category: "Consumable", qty: "8", unit: "PCS", remarks: "" },
-                                            { description: "PU PAINT", category: "Paint", qty: "1", unit: "LTR", remarks: "" },
-                                            { description: "PU HARDENER", category: "Paint", qty: "0.5", unit: "LTR", remarks: "" },
-                                            { description: "PU THINNER", category: "Paint", qty: "0.25", unit: "LTR", remarks: "" },
-                                            { description: "PU PRIMER", category: "Paint", qty: "2", unit: "LTR", remarks: "" },
-                                            { description: "PU PRIMER HARDENER", category: "Paint", qty: "1", unit: "LTR", remarks: "" },
-                                            { description: "PU PRIMER THINNER", category: "Paint", qty: "3", unit: "LTR", remarks: "" },
-                                            { description: "PUTTY", category: "Paint", qty: "0.1", unit: "KG", remarks: "" }
-                                        ];
-                                        setGeneratedItems(mockData);
-                                        setStep("review");
-                                        setDescription("Test Generation");
-                                    }}
-                                    className="w-full mt-2"
-                                >
-                                    Test Fill (Dev)
-                                </Button>
-                            </div>
-
-                            {/* Drag Handle */}
-                            <div
-                                className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-500/50 z-50 flex items-center justify-center transition-colors group-hover:bg-indigo-500/10"
-                                onMouseDown={startResizing}
+                        <div className="p-6 border-t bg-background">
+                            <Button
+                                onClick={handleGenerate}
+                                disabled={(!description && files.length === 0) || step === "processing"}
+                                className="w-full h-12 text-base shadow-md bg-indigo-600 hover:bg-indigo-700 transition-all"
                             >
-                                <div className="h-8 w-1 bg-indigo-300 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
-                            </div>
+                                {step === "processing" ? (
+                                    <>
+                                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                                        Generating...
+                                    </>
+                                ) : generatedItems.length > 0 ? (
+                                    <>
+                                        <Sparkles className="mr-2 h-5 w-5" />
+                                        Regenerate List
+                                    </>
+                                ) : (
+                                    <>
+                                        <Sparkles className="mr-2 h-5 w-5" />
+                                        Generate List
+                                    </>
+                                )}
+                            </Button>
+                            {/* <Button
+                                variant="outline"
+                                onClick={() => {
+                                    const mockData = [
+                                        { description: "MDF PLAIN 18MM (1.22X2.44M)", category: "Wood", qty: "3", unit: "SHEET" },
+                                        { description: "MDF PLAIN 12MM (1.22X2.44M)", category: "Wood", qty: "1", unit: "SHEET" },
+                                        { description: "ACRYLIC CLEAR 5MM (1.22X2.44M)", category: "Plastic", qty: "1.5", unit: "SHEET" },
+                                        { description: "ACRYLIC FLUTED CLEAR (1.22X2.44M)", category: "Plastic", qty: "0.5", unit: "SHEET" },
+                                        { description: "MS SHEET 2MM (1.22X2.44M)", category: "Metal", qty: "0.5", unit: "SHEET" },
+                                        { description: "GRAPHICS VINYL STICKER", category: "Graphics", qty: "5", unit: "SQM" },
+                                        { description: "BUSH", category: "Hardware", qty: "4", unit: "PCS" },
+                                        { description: "FEVICOL", category: "Consumable", qty: "2", unit: "KG" },
+                                        { description: "CHLOROFORM", category: "Consumable", qty: "1", unit: "0.5" },
+                                        { description: "SUPER GLUE", category: "Consumable", qty: "5", unit: "NOS" },
+                                        { description: "SCREWS", category: "Hardware", qty: "100", unit: "PCS" },
+                                        { description: "GUN NAILS", category: "Hardware", qty: "1", unit: "PKT" },
+                                        { description: "SANDING PAPER", category: "Consumable", qty: "8", unit: "PCS" },
+                                        { description: "PU PAINT", category: "Paint", qty: "1", unit: "LTR" },
+                                        { description: "PU HARDENER", category: "Paint", qty: "0.5", unit: "LTR" },
+                                        { description: "PU THINNER", category: "Paint", qty: "0.25", unit: "LTR" },
+                                        { description: "PU PRIMER", category: "Paint", qty: "2", unit: "LTR" },
+                                        { description: "PU PRIMER HARDENER", category: "Paint", qty: "1", unit: "LTR" },
+                                        { description: "PU PRIMER THINNER", category: "Paint", qty: "3", unit: "LTR" },
+                                        { description: "PUTTY", category: "Paint", qty: "0.1", unit: "KG" },
+                                    ].map((item, idx) => ({
+                                        id: `G-${String(generatedCounterRef.current++).padStart(3, '0')}`,
+                                        category: item.category,
+                                        description: item.description,
+                                        qty: item.qty,
+                                        unit: item.unit,
+                                        rate: "0",
+                                        details: {},
+                                        boqQty: Number(item.qty) || 1,
+                                        remarks: ""
+                                    })) as BOQItem[];
+
+                                    setGeneratedItems(mockData);
+                                    setStep("review");
+                                    setDescription("Test Generation");
+                                }}
+                                className="w-full mt-2"
+                            >
+                                Test Fill (Dev)
+                            </Button> */}
                         </div>
-                    )}
+                    </aside>
+
+                    {/* Resizable Handle */}
+                    <div
+                        className="w-4 bg-transparent hover:bg-primary/10 cursor-col-resize flex items-center justify-center relative group transition-colors -ml-0 z-10"
+                        onMouseDown={startResizing}
+                    >
+                        {/* Visible line */}
+                        <div className="absolute inset-y-0 w-px bg-border group-hover:bg-primary/50 transition-colors left-1/2 -translate-x-1/2" />
+
+                        {/* Round handle with arrow */}
+                        <div className="bg-background border shadow-sm rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity absolute pointer-events-none transform -translate-x-1 shadow-md">
+                            <ArrowLeftRight className="h-3 w-3 text-muted-foreground" />
+                        </div>
+                    </div>
 
                     {/* Right Content - Results */}
-                    <div
-                        className="flex-shrink-0 flex flex-col overflow-hidden relative"
-                        style={{ width: isSidebarOpen ? `${100 - sidebarWidth}%` : '100%', transition: isResizing ? 'none' : 'width 300ms ease-in-out' }}
+                    <main
+                        className="flex-shrink-0 flex flex-col overflow-hidden relative bg-background"
+                        style={{ width: `${100 - sidebarWidth}%` }}
                     >
                         {step === "processing" ? (
                             <div className="absolute inset-0 z-10 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center space-y-4">
@@ -382,111 +422,36 @@ export function AIGeneratorDialog({ onAddMaterials }: AIGeneratorDialogProps) {
 
                         {generatedItems.length > 0 ? (
                             <div className="flex-1 flex flex-col overflow-hidden">
-                                <Tabs defaultValue="rough" className="flex-1 flex flex-col">
-                                    <div className="flex items-center justify-between px-6 py-3 border-b bg-white">
-                                        <TabsList className="grid w-[300px] grid-cols-2">
-                                            <TabsTrigger value="rough">Rough Draft</TabsTrigger>
-                                            <TabsTrigger value="table">Final Table</TabsTrigger>
-                                        </TabsList>
-
-                                        <div className="flex items-center gap-2">
-                                            <Button variant="outline" size="sm" onClick={handleCopyToClipboard} className="h-9">
-                                                {copied ? <Check className="h-4 w-4 mr-2" /> : <Copy className="h-4 w-4 mr-2" />}
-                                                Copy
-                                            </Button>
-                                            <Button size="sm" onClick={handleAddToBOQ} className="h-9 bg-green-600 hover:bg-green-700">
-                                                <Check className="h-4 w-4 mr-2" />
-                                                Add to Project
-                                            </Button>
-                                        </div>
+                                {/* Action Bar */}
+                                <div className="flex items-center justify-between px-6 py-3 border-b bg-white">
+                                    <h3 className="font-semibold text-base">Generated Materials</h3>
+                                    <div className="flex items-center gap-2">
+                                        <Button variant="outline" size="sm" onClick={handleCopyToClipboard} className="h-9">
+                                            {copied ? <Check className="h-4 w-4 mr-2" /> : <Copy className="h-4 w-4 mr-2" />}
+                                            Copy
+                                        </Button>
+                                        <Button size="sm" onClick={handleAddToBOQ} className="h-9 bg-green-600 hover:bg-green-700">
+                                            <Check className="h-4 w-4 mr-2" />
+                                            Add to Project
+                                        </Button>
                                     </div>
+                                </div>
 
-                                    <div className="flex-1 overflow-hidden p-6 flex flex-col min-h-0">
-                                        <TabsContent value="rough" className="flex-1 mt-0 border rounded-lg bg-white shadow-sm overflow-hidden flex flex-col data-[state=inactive]:hidden min-h-0">
-                                            <div className="flex-1 overflow-auto relative">
-                                                <table className="w-full caption-bottom text-sm relative">
-                                                    <TableHeader className="sticky top-0 bg-slate-50 z-10 shadow-sm">
-                                                        <TableRow>
-                                                            <TableHead className="w-[50px]">No.</TableHead>
-                                                            <TableHead>Description (Nomenclature)</TableHead>
-                                                            <TableHead className="w-[140px]">Category</TableHead>
-                                                            <TableHead className="w-[80px]">Qty</TableHead>
-                                                            <TableHead className="w-[80px]">Unit</TableHead>
-                                                            <TableHead className="w-[150px]">Remarks</TableHead>
-                                                        </TableRow>
-                                                    </TableHeader>
-                                                    <TableBody>
-                                                        {generatedItems.map((item, idx) => (
-                                                            <TableRow key={idx} className="hover:bg-slate-50">
-                                                                <TableCell className="text-muted-foreground font-mono">{idx + 1}</TableCell>
-                                                                <TableCell>
-                                                                    <Input
-                                                                        value={item.description}
-                                                                        onChange={(e) => handleUpdateItem(idx, "description", e.target.value)}
-                                                                        className="h-9 border-transparent hover:border-input focus:border-input bg-transparent"
-                                                                    />
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                    <Input
-                                                                        value={item.category}
-                                                                        onChange={(e) => handleUpdateItem(idx, "category", e.target.value)}
-                                                                        className="h-9 border-transparent hover:border-input focus:border-input bg-transparent"
-                                                                    />
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                    <Input
-                                                                        type="number"
-                                                                        value={item.qty}
-                                                                        onChange={(e) => handleUpdateItem(idx, "qty", Number(e.target.value))}
-                                                                        className="h-9 border-transparent hover:border-input focus:border-input bg-transparent"
-                                                                    />
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                    <Input
-                                                                        value={item.unit}
-                                                                        onChange={(e) => handleUpdateItem(idx, "unit", e.target.value)}
-                                                                        className="h-9 border-transparent hover:border-input focus:border-input bg-transparent"
-                                                                    />
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                    <Input
-                                                                        value={item.remarks || ""}
-                                                                        onChange={(e) => handleUpdateItem(idx, "remarks", e.target.value)}
-                                                                        className="h-9 border-transparent hover:border-input focus:border-input bg-transparent"
-                                                                        placeholder="-"
-                                                                    />
-                                                                </TableCell>
-                                                            </TableRow>
-                                                        ))}
-                                                    </TableBody>
-                                                </table>
-                                            </div>
-                                        </TabsContent>
-
-                                        <TabsContent value="table" className="flex-1 mt-0 overflow-hidden data-[state=inactive]:hidden min-h-0">
-                                            <div className="h-full border rounded-lg p-6 bg-white shadow-sm overflow-auto font-mono text-sm relative">
-                                                <div className="min-w-[700px]">
-                                                    <div className="flex gap-4 border-b pb-3 mb-3 font-bold text-slate-800 sticky top-0 bg-white z-10">
-                                                        <span className="w-8 shrink-0">S:NO</span>
-                                                        <span className="flex-1 min-w-[200px]">DESCRIPTION</span>
-                                                        <span className="w-32 shrink-0">CATEGORY</span>
-                                                        <span className="w-24 shrink-0 text-right">QTY UNITS</span>
-                                                        <span className="w-40 shrink-0">REMARKS</span>
-                                                    </div>
-                                                    {generatedItems.map((item, idx) => (
-                                                        <div key={idx} className="flex gap-4 py-3 border-b border-dashed border-slate-200 items-start hover:bg-slate-50 transition-colors">
-                                                            <span className="w-8 shrink-0 text-slate-400">{idx + 1}</span>
-                                                            <span className="flex-1 min-w-[200px] whitespace-pre-wrap break-words text-slate-700">{item.description}</span>
-                                                            <span className="w-32 shrink-0 text-slate-500 break-words">{item.category}</span>
-                                                            <span className="w-24 shrink-0 text-right font-medium text-slate-900">{item.qty} {item.unit}</span>
-                                                            <span className="w-40 shrink-0 text-slate-400 italic text-xs break-words">{item.remarks}</span>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        </TabsContent>
+                                {/* BOQTable - with ScrollArea */}
+                                <ScrollArea className="flex-1">
+                                    <div className="p-6">
+                                        <BOQTable
+                                            items={generatedItems}
+                                            onUpdateQuantity={handleUpdateQuantity}
+                                            onRemove={handleRemove}
+                                            onAddMaterial={handleAddMaterial}
+                                            onUpdateRemark={handleUpdateRemark}
+                                            onUpdateMaterial={handleUpdateMaterial}
+                                            isPriceVisible={false}
+                                            hideRemark={true}
+                                        />
                                     </div>
-                                </Tabs>
+                                </ScrollArea>
                             </div>
                         ) : (
                             <div className="flex-1 flex flex-col items-center justify-center text-slate-300 p-8">
@@ -499,9 +464,9 @@ export function AIGeneratorDialog({ onAddMaterials }: AIGeneratorDialogProps) {
                                 </p>
                             </div>
                         )}
-                    </div>
+                    </main>
                 </div>
             </DialogContent>
-        </Dialog >
+        </Dialog>
     );
 }

@@ -49,7 +49,7 @@ export function MaterialList({ onAdd, isPriceVisible }: MaterialListProps) {
     }, [groupedMaterials, searchTerm])
 
     return (
-        <div className="flex flex-col h-full bg-card border-r">
+        <div className="flex flex-col h-full bg-card">
             <div className="p-4 border-b space-y-4">
                 <h2 className="font-semibold text-lg tracking-tight">Material Library</h2>
                 <div className="relative">
@@ -85,7 +85,8 @@ export function MaterialList({ onAdd, isPriceVisible }: MaterialListProps) {
                                             {items.map((material) => (
                                                 <div
                                                     key={material.id}
-                                                    className="group flex items-center justify-between p-2 rounded-md hover:bg-accent/50 transition-colors border border-transparent hover:border-border/50 animate-in fade-in slide-in-from-top-1 duration-200"
+                                                    className="group flex items-center justify-between p-2 rounded-md hover:bg-accent/50 transition-colors border border-transparent hover:border-border/50 animate-in fade-in slide-in-from-top-1 duration-200 cursor-pointer select-none"
+                                                    onDoubleClick={() => onAdd(material)}
                                                 >
                                                     <div className="flex flex-col min-w-0 pr-2">
                                                         <span className="text-sm font-medium truncate" title={material.description}>
