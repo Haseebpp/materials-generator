@@ -72,7 +72,7 @@ export function AIGeneratorDialog({ onAddMaterials }: AIGeneratorDialogProps) {
     }, [open]);
 
     const refreshHistory = () => {
-        setHistorySummaries(historyService.getHistorySummaries());
+        historyService.getHistorySummaries().then(setHistorySummaries);
     };
 
     const startResizing = useCallback((e: React.MouseEvent) => {
@@ -238,7 +238,7 @@ export function AIGeneratorDialog({ onAddMaterials }: AIGeneratorDialogProps) {
             setStandardizedGenerated(true);
 
             // Update history with standardized items
-            const existingEntry = historyService.getEntry(historyId);
+            const existingEntry = await historyService.getEntry(historyId);
             if (existingEntry) {
                 await historyService.saveGeneration(
                     existingEntry.prompt,
@@ -260,8 +260,8 @@ export function AIGeneratorDialog({ onAddMaterials }: AIGeneratorDialogProps) {
     };
 
     // History actions
-    const handleRestoreFromHistory = (id: string) => {
-        const entry = historyService.getEntry(id);
+    const handleRestoreFromHistory = async (id: string) => {
+        const entry = await historyService.getEntry(id);
         if (!entry) return;
 
         // Restore prompt and files
@@ -300,9 +300,9 @@ export function AIGeneratorDialog({ onAddMaterials }: AIGeneratorDialogProps) {
         }
     };
 
-    const handleDeleteHistory = (id: string) => {
+    const handleDeleteHistory = async (id: string) => {
         if (confirm('Delete this generation from history?')) {
-            historyService.deleteEntry(id);
+            await historyService.deleteEntry(id);
             if (currentHistoryId === id) {
                 setCurrentHistoryId(null);
             }
@@ -310,9 +310,9 @@ export function AIGeneratorDialog({ onAddMaterials }: AIGeneratorDialogProps) {
         }
     };
 
-    const handleClearAllHistory = () => {
+    const handleClearAllHistory = async () => {
         if (confirm('Clear all generation history? This cannot be undone.')) {
-            historyService.clearHistory();
+            await historyService.clearHistory();
             setCurrentHistoryId(null);
             refreshHistory();
         }

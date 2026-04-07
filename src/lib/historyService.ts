@@ -1,34 +1,96 @@
+import { supabase, isSupabaseConfigured } from './supabaseClient';
 import type { BOQItem } from '@/types';
 import type { GenerationHistoryEntry, GenerationHistorySummary } from '@/types/historyTypes';
 
 const HISTORY_KEY = 'ai_generator_history';
-const MAX_HISTORY_ENTRIES = 50; // Limit to prevent localStorage overflow
+const MAX_HISTORY_ENTRIES = 50;
 
-/**
- * Generate a unique ID for a history entry
- */
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
 function generateId(): string {
     return `gen-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 }
 
-/**
- * Convert File objects or blob URLs to base64 data URLs
- */
 export async function filesToDataUrls(files: File[]): Promise<string[]> {
-    const promises = files.map(file => {
-        return new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result as string);
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-        });
-    });
-    return Promise.all(promises);
+    return Promise.all(
+        files.map(file =>
+            new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result as string);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            })
+        )
+    );
 }
 
-/**
- * Save a generation to history
- */
+export function dataUrlsToFiles(dataUrls: string[]): File[] {
+    return dataUrls.map((dataUrl, index) => {
+        const matches = dataUrl.match(/^data:(.+);base64,(.+)$/);
+        if (!matches) throw new Error('Invalid data URL');
+        const mimeType = matches[1];
+        const binaryString = atob(matches[2]);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+        const ext = mimeType.split('/')[1] || 'png';
+        return new File([bytes], `restored_image_${index + 1}.${ext}`, { type: mimeType });
+    });
+}
+
+// ─── Supabase row ↔ app type mappers ────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function rowToEntry(row: any): GenerationHistoryEntry {
+    return {
+        id: row.id,
+        timestamp: typeof row.timestamp === 'string' ? row.timestamp : new Date(row.timestamp).toISOString(),
+        prompt: row.prompt,
+        imageDataUrls: row.image_data_urls ?? [],
+        professionalItems: row.professional_items ?? [],
+        standardizedItems: row.standardized_items ?? [],
+        metadata: {
+            apiKeyUsed: row.api_key_used ?? false,
+            imageCount: row.image_count ?? 0,
+            itemCounts: {
+                professional: row.professional_count ?? 0,
+                standardized: row.standardized_count ?? 0,
+            },
+        },
+    };
+}
+
+function entryToRow(entry: GenerationHistoryEntry) {
+    return {
+        id: entry.id,
+        timestamp: entry.timestamp,
+        prompt: entry.prompt,
+        image_data_urls: entry.imageDataUrls,
+        professional_items: entry.professionalItems,
+        standardized_items: entry.standardizedItems,
+        api_key_used: entry.metadata.apiKeyUsed,
+        image_count: entry.metadata.imageCount,
+        professional_count: entry.metadata.itemCounts.professional,
+        standardized_count: entry.metadata.itemCounts.standardized,
+    };
+}
+
+// ─── localStorage fallbacks ──────────────────────────────────────────────────
+
+function lsGetHistory(): GenerationHistoryEntry[] {
+    try {
+        const data = localStorage.getItem(HISTORY_KEY);
+        return data ? JSON.parse(data) : [];
+    } catch {
+        return [];
+    }
+}
+
+function lsSaveHistory(history: GenerationHistoryEntry[]) {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+}
+
+// ─── Public API ──────────────────────────────────────────────────────────────
+
 export async function saveGeneration(
     prompt: string,
     files: File[],
@@ -50,102 +112,124 @@ export async function saveGeneration(
             imageCount: files.length,
             itemCounts: {
                 professional: professionalItems.length,
-                standardized: standardizedItems.length
-            }
-        }
+                standardized: standardizedItems.length,
+            },
+        },
     };
 
-    const history = getHistory();
-    history.unshift(entry); // Add to beginning
-
-    // Limit history size
-    if (history.length > MAX_HISTORY_ENTRIES) {
-        history.splice(MAX_HISTORY_ENTRIES);
+    if (isSupabaseConfigured) {
+        const { error } = await supabase
+            .from('generation_history')
+            .insert(entryToRow(entry));
+        if (error) console.error('[historyService] insert error:', error);
+    } else {
+        // localStorage fallback
+        const history = lsGetHistory();
+        history.unshift(entry);
+        if (history.length > MAX_HISTORY_ENTRIES) history.splice(MAX_HISTORY_ENTRIES);
+        lsSaveHistory(history);
     }
 
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
     return entry;
 }
 
-/**
- * Get all history entries
- */
-export function getHistory(): GenerationHistoryEntry[] {
-    try {
-        const data = localStorage.getItem(HISTORY_KEY);
-        return data ? JSON.parse(data) : [];
-    } catch {
-        console.error('Failed to parse history from localStorage');
-        return [];
+export async function getHistory(): Promise<GenerationHistoryEntry[]> {
+    if (isSupabaseConfigured) {
+        const { data, error } = await supabase
+            .from('generation_history')
+            .select('*')
+            .order('timestamp', { ascending: false })
+            .limit(MAX_HISTORY_ENTRIES);
+        if (error) {
+            console.error('[historyService] fetch error:', error);
+            return [];
+        }
+        return (data ?? []).map(rowToEntry);
     }
+    return lsGetHistory();
 }
 
-/**
- * Get history summaries for display (lighter weight)
- */
-export function getHistorySummaries(): GenerationHistorySummary[] {
-    const history = getHistory();
-    return history.map(entry => ({
+export async function getHistorySummaries(): Promise<GenerationHistorySummary[]> {
+    if (isSupabaseConfigured) {
+        const { data, error } = await supabase
+            .from('generation_history')
+            .select('id, timestamp, prompt, image_count, professional_count, standardized_count')
+            .order('timestamp', { ascending: false })
+            .limit(MAX_HISTORY_ENTRIES);
+        if (error) {
+            console.error('[historyService] summaries error:', error);
+            return [];
+        }
+        return (data ?? []).map(row => ({
+            id: row.id,
+            timestamp: typeof row.timestamp === 'string' ? row.timestamp : new Date(row.timestamp).toISOString(),
+            promptPreview: (row.prompt as string).substring(0, 100) + ((row.prompt as string).length > 100 ? '...' : ''),
+            imageCount: row.image_count ?? 0,
+            itemCounts: {
+                professional: row.professional_count ?? 0,
+                standardized: row.standardized_count ?? 0,
+            },
+        }));
+    }
+    return lsGetHistory().map(entry => ({
         id: entry.id,
         timestamp: entry.timestamp,
         promptPreview: entry.prompt.substring(0, 100) + (entry.prompt.length > 100 ? '...' : ''),
         imageCount: entry.metadata.imageCount,
-        itemCounts: entry.metadata.itemCounts
+        itemCounts: entry.metadata.itemCounts,
     }));
 }
 
-/**
- * Get a single history entry by ID
- */
-export function getEntry(id: string): GenerationHistoryEntry | null {
-    const history = getHistory();
-    return history.find(entry => entry.id === id) || null;
-}
-
-/**
- * Delete a history entry
- */
-export function deleteEntry(id: string): void {
-    const history = getHistory();
-    const filtered = history.filter(entry => entry.id !== id);
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(filtered));
-}
-
-/**
- * Clear all history
- */
-export function clearHistory(): void {
-    localStorage.removeItem(HISTORY_KEY);
-}
-
-/**
- * Export a generation as a downloadable ZIP file
- */
-export async function exportGeneration(id: string): Promise<void> {
-    const entry = getEntry(id);
-    if (!entry) {
-        throw new Error('Generation not found');
+export async function getEntry(id: string): Promise<GenerationHistoryEntry | null> {
+    if (isSupabaseConfigured) {
+        const { data, error } = await supabase
+            .from('generation_history')
+            .select('*')
+            .eq('id', id)
+            .maybeSingle();
+        if (error) { console.error('[historyService] getEntry error:', error); return null; }
+        return data ? rowToEntry(data) : null;
     }
+    return lsGetHistory().find(e => e.id === id) ?? null;
+}
 
-    // Create JSON content
+export async function deleteEntry(id: string): Promise<void> {
+    if (isSupabaseConfigured) {
+        const { error } = await supabase.from('generation_history').delete().eq('id', id);
+        if (error) console.error('[historyService] delete error:', error);
+    } else {
+        const history = lsGetHistory().filter(e => e.id !== id);
+        lsSaveHistory(history);
+    }
+}
+
+export async function clearHistory(): Promise<void> {
+    if (isSupabaseConfigured) {
+        const { error } = await supabase.from('generation_history').delete().neq('id', '');
+        if (error) console.error('[historyService] clear error:', error);
+    } else {
+        localStorage.removeItem(HISTORY_KEY);
+    }
+}
+
+export async function exportGeneration(id: string): Promise<void> {
+    const entry = await getEntry(id);
+    if (!entry) throw new Error('Generation not found');
+
     const jsonContent = {
         id: entry.id,
         timestamp: entry.timestamp,
         prompt: entry.prompt,
         professionalItems: entry.professionalItems,
         standardizedItems: entry.standardizedItems,
-        metadata: entry.metadata
+        metadata: entry.metadata,
     };
 
-    // For simplicity, we'll create a JSON file download
-    // A full ZIP implementation would require a library like JSZip
     const jsonBlob = new Blob([JSON.stringify(jsonContent, null, 2)], { type: 'application/json' });
     const jsonUrl = URL.createObjectURL(jsonBlob);
-
     const timestamp = new Date(entry.timestamp).toISOString().split('T')[0];
     const promptSlug = entry.prompt.substring(0, 30).replace(/[^a-zA-Z0-9]/g, '_');
 
-    // Download JSON
     const jsonLink = document.createElement('a');
     jsonLink.href = jsonUrl;
     jsonLink.download = `generation_${timestamp}_${promptSlug}.json`;
@@ -154,46 +238,15 @@ export async function exportGeneration(id: string): Promise<void> {
     document.body.removeChild(jsonLink);
     URL.revokeObjectURL(jsonUrl);
 
-    // Download images separately
     for (let i = 0; i < entry.imageDataUrls.length; i++) {
         const dataUrl = entry.imageDataUrls[i];
-        const imageLink = document.createElement('a');
-        imageLink.href = dataUrl;
-
-        // Extract extension from data URL
         const mimeMatch = dataUrl.match(/data:image\/(\w+);/);
         const ext = mimeMatch ? mimeMatch[1] : 'png';
-
+        const imageLink = document.createElement('a');
+        imageLink.href = dataUrl;
         imageLink.download = `generation_${timestamp}_image_${i + 1}.${ext}`;
         document.body.appendChild(imageLink);
         imageLink.click();
         document.body.removeChild(imageLink);
     }
-}
-
-/**
- * Convert base64 data URLs back to File objects for restoration
- */
-export function dataUrlsToFiles(dataUrls: string[]): File[] {
-    return dataUrls.map((dataUrl, index) => {
-        // Parse the data URL
-        const matches = dataUrl.match(/^data:(.+);base64,(.+)$/);
-        if (!matches) {
-            throw new Error('Invalid data URL');
-        }
-
-        const mimeType = matches[1];
-        const base64Data = matches[2];
-
-        // Convert base64 to binary
-        const binaryString = atob(base64Data);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-        }
-
-        // Create a File object
-        const ext = mimeType.split('/')[1] || 'png';
-        return new File([bytes], `restored_image_${index + 1}.${ext}`, { type: mimeType });
-    });
 }

@@ -7,12 +7,12 @@ import { ExportButton } from "@/components/ExportButton"
 import { Button } from "@/components/ui/button"
 import { AIGeneratorDialog } from "@/components/AIGeneratorDialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { loadBOQ, saveBOQ, clearBOQ } from "@/lib/boqService"
+import { isSupabaseConfigured } from "@/lib/supabaseClient"
 
 function App() {
-  const [boqItems, setBoqItems] = useState<BOQItem[]>(() => {
-    const saved = localStorage.getItem("boqItems")
-    return saved ? JSON.parse(saved) : []
-  })
+  const [boqItems, setBoqItems] = useState<BOQItem[]>([])
+  const [boqLoaded, setBoqLoaded] = useState(false)
 
   // Resizable sidebar state
   const [sidebarWidth, setSidebarWidth] = useState(400)
@@ -21,33 +21,32 @@ function App() {
 
   const [isPriceVisible, setIsPriceVisible] = useState(false)
 
+  // ── Load BOQ on mount ──────────────────────────────────────────────────────
   useEffect(() => {
-    localStorage.setItem("boqItems", JSON.stringify(boqItems))
-  }, [boqItems])
-
-  const startResizing = useCallback(() => {
-    setIsResizing(true)
+    loadBOQ().then(items => {
+      setBoqItems(items)
+      setBoqLoaded(true)
+    })
   }, [])
 
-  const stopResizing = useCallback(() => {
-    setIsResizing(false)
-  }, [])
+  // ── Persist BOQ on every change (after initial load) ─────────────────────
+  useEffect(() => {
+    if (!boqLoaded) return
+    saveBOQ(boqItems)
+  }, [boqItems, boqLoaded])
+
+  // ── Resize logic ──────────────────────────────────────────────────────────
+  const startResizing = useCallback(() => setIsResizing(true), [])
+  const stopResizing  = useCallback(() => setIsResizing(false), [])
 
   const resize = useCallback(
-    (mouseMoveEvent: MouseEvent) => {
-      if (isResizing) {
-        // Calculate new width based on mouse position
-        // The sidebar is the first element, so its width is roughly mouseX - containerLeft
-        // But we can just use clientX if the container is near the edge, or be more precise:
-        // Let's get the container's left offset
-        const container = sidebarRef.current?.parentElement
-        if (container) {
-          const containerLeft = container.getBoundingClientRect().left
-          const newWidth = mouseMoveEvent.clientX - containerLeft
-          // Min 250px, Max 800px or 50% of screen
-          if (newWidth > 250 && newWidth < Math.min(800, window.innerWidth * 0.6)) {
-            setSidebarWidth(newWidth)
-          }
+    (e: MouseEvent) => {
+      if (!isResizing) return
+      const container = sidebarRef.current?.parentElement
+      if (container) {
+        const newWidth = e.clientX - container.getBoundingClientRect().left
+        if (newWidth > 250 && newWidth < Math.min(800, window.innerWidth * 0.6)) {
+          setSidebarWidth(newWidth)
         }
       }
     },
@@ -63,15 +62,13 @@ function App() {
     }
   }, [resize, stopResizing])
 
-
+  // ── BOQ handlers ──────────────────────────────────────────────────────────
   const handleAddMaterial = (material: Material) => {
-    setBoqItems((prev) => {
-      const existing = prev.find((item) => item.id === material.id)
+    setBoqItems(prev => {
+      const existing = prev.find(item => item.id === material.id)
       if (existing) {
-        return prev.map((item) =>
-          item.id === material.id
-            ? { ...item, boqQty: item.boqQty + 1 }
-            : item
+        return prev.map(item =>
+          item.id === material.id ? { ...item, boqQty: item.boqQty + 1 } : item
         )
       }
       return [...prev, { ...material, boqQty: 1 }]
@@ -79,28 +76,28 @@ function App() {
   }
 
   const handleAddMultipleMaterials = (materials: BOQItem[]) => {
-    setBoqItems(prev => [...prev, ...materials]);
+    setBoqItems(prev => [...prev, ...materials])
   }
 
   const handleUpdateQuantity = (id: string, qty: number) => {
-    setBoqItems((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, boqQty: qty } : item))
+    setBoqItems(prev =>
+      prev.map(item => (item.id === id ? { ...item, boqQty: qty } : item))
     )
   }
 
   const handleRemoveItem = (id: string) => {
-    setBoqItems((prev) => prev.filter((item) => item.id !== id))
+    setBoqItems(prev => prev.filter(item => item.id !== id))
   }
 
   const handleUpdateRemark = (id: string, remark: string) => {
-    setBoqItems((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, remarks: remark } : item))
+    setBoqItems(prev =>
+      prev.map(item => (item.id === id ? { ...item, remarks: remark } : item))
     )
   }
 
   const handleUpdateMaterial = (updatedMaterial: Material) => {
-    setBoqItems((prev) =>
-      prev.map((item) => (item.id === updatedMaterial.id ? { ...item, ...updatedMaterial } : item))
+    setBoqItems(prev =>
+      prev.map(item => (item.id === updatedMaterial.id ? { ...item, ...updatedMaterial } : item))
     )
   }
 
@@ -108,20 +105,27 @@ function App() {
     setBoqItems(reorderedItems)
   }
 
-  const handleReset = () => {
+  const handleReset = async () => {
     if (confirm("Are you sure you want to clear the BOQ?")) {
+      await clearBOQ()
       setBoqItems([])
     }
   }
 
   return (
-    <div className={`min-h-screen bg-background p-4 md:p-8 ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
+    <div className={`min-h-screen bg-background p-4 md:p-8 ${isResizing ? "cursor-col-resize select-none" : ""}`}>
       <div className="mx-auto max-w-[1400px] space-y-6">
         <header className="flex items-center justify-between border-b pb-4">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Material BOQ</h1>
             <p className="text-muted-foreground">
               Create and manage Bill of Quantities
+              {isSupabaseConfigured && (
+                <span className="ml-2 inline-flex items-center gap-1 text-xs text-green-600 font-medium">
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-500 inline-block" />
+                  Synced to Cloud
+                </span>
+              )}
             </p>
           </div>
           <div className="flex gap-2">
@@ -155,10 +159,7 @@ function App() {
             className="w-3 bg-transparent hover:bg-primary/10 cursor-col-resize flex items-center justify-center relative group transition-colors -ml-0 z-10 hidden lg:flex"
             onMouseDown={startResizing}
           >
-            {/* Visible line */}
             <div className="absolute inset-y-0 w-px bg-border group-hover:bg-primary/50 transition-colors left-1/2 -translate-x-1/2" />
-
-            {/* Round handle with arrow */}
             <div className="bg-background border shadow-sm rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity absolute pointer-events-none transform -translate-x-1 shadow-md">
               <ArrowLeftRight className="h-3 w-3 text-muted-foreground" />
             </div>
