@@ -5,11 +5,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Sparkles, Upload, Loader2, Settings, Copy, Check, ArrowLeftRight } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Sparkles, Upload, Loader2, Settings, Copy, Check, ArrowLeftRight, History, Download, Trash2, RotateCcw, ChevronRight, ChevronLeft } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { BOQTable } from "@/components/BOQTable";
-import { generateMaterialList } from "@/lib/aiService";
+import { generateProfessionalMaterials, generateStandardizedMaterials } from "@/lib/aiService";
+import * as historyService from "@/lib/historyService";
 import type { BOQItem, Material } from "@/types";
+import type { GenerationHistorySummary } from "@/types/historyTypes";
 
 interface AIGeneratorDialogProps {
     onAddMaterials: (items: BOQItem[]) => void;
@@ -17,24 +20,60 @@ interface AIGeneratorDialogProps {
 
 type Step = "input" | "processing" | "review";
 
+// Configuration for table tabs - extensible for future prompt tables
+interface TableTabConfig {
+    id: string;
+    label: string;
+    description: string;
+}
+
+const TABLE_TABS: TableTabConfig[] = [
+    { id: "professional", label: "Professional", description: "AI-generated professional materials list" },
+    { id: "standardized", label: "D&C Standardized", description: "Matched to D&C company standards" }
+];
+
 export function AIGeneratorDialog({ onAddMaterials }: AIGeneratorDialogProps) {
     const [open, setOpen] = useState(false);
     const [step, setStep] = useState<Step>("input");
     const [description, setDescription] = useState("");
     const [files, setFiles] = useState<File[]>([]);
     const [apiKey, setApiKey] = useState(() => localStorage.getItem("openai_api_key") || "");
-    const [generatedItems, setGeneratedItems] = useState<BOQItem[]>([]);
+
+    // Separate state for each table tab
+    const [professionalItems, setProfessionalItems] = useState<BOQItem[]>([]);
+    const [standardizedItems, setStandardizedItems] = useState<BOQItem[]>([]);
+    const [isStandardizing, setIsStandardizing] = useState(false);
+    const [standardizedGenerated, setStandardizedGenerated] = useState(false);
+    const [activeTab, setActiveTab] = useState<string>("professional");
+
     const [copied, setCopied] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isDragging, setIsDragging] = useState(false);
+
+    // History panel state
+    const [showHistory, setShowHistory] = useState(false);
+    const [historySummaries, setHistorySummaries] = useState<GenerationHistorySummary[]>([]);
+    const [currentHistoryId, setCurrentHistoryId] = useState<string | null>(null);
 
     // Resize Logic (percentage-based)
     const [sidebarWidth, setSidebarWidth] = useState(50); // percentage
     const [isResizing, setIsResizing] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
 
-    // Counter for simple ID generation
-    const generatedCounterRef = useRef(1);
+    // Counters for simple ID generation
+    const professionalCounterRef = useRef(1);
+    const standardizedCounterRef = useRef(1);
+
+    // Load history on mount and when dialog opens
+    useEffect(() => {
+        if (open) {
+            refreshHistory();
+        }
+    }, [open]);
+
+    const refreshHistory = () => {
+        setHistorySummaries(historyService.getHistorySummaries());
+    };
 
     const startResizing = useCallback((e: React.MouseEvent) => {
         e.preventDefault();
@@ -49,7 +88,6 @@ export function AIGeneratorDialog({ onAddMaterials }: AIGeneratorDialogProps) {
         if (isResizing && containerRef.current) {
             const containerRect = containerRef.current.getBoundingClientRect();
             const newWidth = ((mouseMoveEvent.clientX - containerRect.left) / containerRect.width) * 100;
-            // Limit range to avoid breaking UI (20% to 80%)
             if (newWidth > 20 && newWidth < 80) {
                 setSidebarWidth(newWidth);
             }
@@ -97,35 +135,40 @@ export function AIGeneratorDialog({ onAddMaterials }: AIGeneratorDialogProps) {
         localStorage.setItem("openai_api_key", key);
     };
 
+    // Helper function to parse description and extract category
+    const parseItem = (item: Partial<BOQItem>) => {
+        let cat = "Generated";
+        let desc = item.description || "";
+
+        if (desc.includes(":")) {
+            const parts = desc.split(":");
+            cat = parts[0].trim();
+            desc = parts.slice(1).join(":").trim();
+        }
+
+        return { category: cat, description: desc };
+    };
+
     const handleGenerate = async () => {
         if (!description && files.length === 0) return;
 
         setStep("processing");
+        setCurrentHistoryId(null); // This is a new generation
+        setStandardizedGenerated(false); // Reset standardized state
+        setStandardizedItems([]); // Clear previous standardized items
 
         try {
-            const result = await generateMaterialList(description, files, apiKey);
+            // Step 1: Generate Professional Materials Only
+            const result = await generateProfessionalMaterials(description, files, apiKey);
 
-            // Parse description to extract Category if present (Category: Description)
-            const parsedItems = result.items.map(item => {
-                let cat = "Generated";
-                let desc = item.description || "";
-
-                if (desc.includes(":")) {
-                    const parts = desc.split(":");
-                    cat = parts[0].trim();
-                    desc = parts.slice(1).join(":").trim();
-                }
-
-                return {
-                    ...item,
-                    category: cat,
-                    description: desc
-                };
+            // Process Professional Items
+            const parsedProfessionalItems = result.professionalItems.map(item => {
+                const parsed = parseItem(item);
+                return { ...item, ...parsed };
             });
 
-            // Convert to full BOQItem objects with simple IDs
-            const validItems = parsedItems.map((item) => ({
-                id: `G-${String(generatedCounterRef.current++).padStart(3, '0')}`,
+            const validProfessionalItems = parsedProfessionalItems.map((item) => ({
+                id: `P-${String(professionalCounterRef.current++).padStart(3, '0')}`,
                 category: item.category || "Generated",
                 description: item.description || "Unknown Material",
                 qty: String(item.qty || 0),
@@ -136,8 +179,24 @@ export function AIGeneratorDialog({ onAddMaterials }: AIGeneratorDialogProps) {
                 remarks: ""
             })) as BOQItem[];
 
-            setGeneratedItems(validItems);
+            setProfessionalItems(validProfessionalItems);
+            setActiveTab("professional"); // Default to Professional tab after generation
             setStep("review");
+
+            // Save to history (without standardized items initially)
+            const savedEntry = await historyService.saveGeneration(
+                description,
+                files,
+                validProfessionalItems,
+                [], // Empty standardized items - will be added later
+                !!apiKey
+            );
+            setCurrentHistoryId(savedEntry.id);
+            refreshHistory();
+
+            // Step 2: Automatically start D&C standardization in background
+            startBackgroundStandardization(validProfessionalItems, savedEntry.id);
+
         } catch (error) {
             console.error(error);
             const errorMessage = error instanceof Error ? error.message : "Unknown error";
@@ -146,40 +205,176 @@ export function AIGeneratorDialog({ onAddMaterials }: AIGeneratorDialogProps) {
         }
     };
 
+    // Background D&C standardization - runs automatically after professional generation
+    const startBackgroundStandardization = async (profItems: BOQItem[], historyId: string) => {
+        if (profItems.length === 0) return;
+
+        setIsStandardizing(true);
+
+        try {
+            // Prepare items for standardization (use the raw format expected by AI)
+            const itemsForStandardization = profItems.map(item => ({
+                description: `${item.category}: ${item.description}`,
+                qty: item.qty,
+                unit: item.unit
+            }));
+
+            const result = await generateStandardizedMaterials(itemsForStandardization, apiKey);
+
+            // Process Standardized Items
+            const validStandardizedItems = result.standardizedItems.map((item) => ({
+                id: `S-${String(standardizedCounterRef.current++).padStart(3, '0')}`,
+                category: item.category || "D&C",
+                description: item.description || "Unknown Material",
+                qty: String(item.qty || 0),
+                unit: item.unit || "PCS",
+                rate: "0",
+                details: {},
+                boqQty: Number(item.qty) || 1,
+                remarks: ""
+            })) as BOQItem[];
+
+            setStandardizedItems(validStandardizedItems);
+            setStandardizedGenerated(true);
+
+            // Update history with standardized items
+            const existingEntry = historyService.getEntry(historyId);
+            if (existingEntry) {
+                await historyService.saveGeneration(
+                    existingEntry.prompt,
+                    historyService.dataUrlsToFiles(existingEntry.imageDataUrls),
+                    profItems,
+                    validStandardizedItems,
+                    !!apiKey
+                );
+                refreshHistory();
+            }
+
+        } catch (error) {
+            console.error(error);
+            // Don't show alert for background errors - just log
+            console.error('Background D&C standardization failed:', error);
+        } finally {
+            setIsStandardizing(false);
+        }
+    };
+
+    // History actions
+    const handleRestoreFromHistory = (id: string) => {
+        const entry = historyService.getEntry(id);
+        if (!entry) return;
+
+        // Restore prompt and files
+        setDescription(entry.prompt);
+        setFiles(historyService.dataUrlsToFiles(entry.imageDataUrls));
+
+        // Restore generated items
+        setProfessionalItems(entry.professionalItems);
+        setStandardizedItems(entry.standardizedItems);
+        setStandardizedGenerated(entry.standardizedItems.length > 0);
+
+        // Update counters to avoid ID conflicts
+        const maxProfId = Math.max(0, ...entry.professionalItems.map(i => {
+            const match = i.id.match(/P-(\d+)/);
+            return match ? parseInt(match[1]) : 0;
+        }));
+        const maxStdId = Math.max(0, ...entry.standardizedItems.map(i => {
+            const match = i.id.match(/S-(\d+)/);
+            return match ? parseInt(match[1]) : 0;
+        }));
+        professionalCounterRef.current = maxProfId + 1;
+        standardizedCounterRef.current = maxStdId + 1;
+
+        setCurrentHistoryId(id);
+        setActiveTab("professional");
+        setStep("review");
+        setShowHistory(false);
+    };
+
+    const handleExportHistory = async (id: string) => {
+        try {
+            await historyService.exportGeneration(id);
+        } catch (error) {
+            console.error('Export failed:', error);
+            alert('Failed to export generation');
+        }
+    };
+
+    const handleDeleteHistory = (id: string) => {
+        if (confirm('Delete this generation from history?')) {
+            historyService.deleteEntry(id);
+            if (currentHistoryId === id) {
+                setCurrentHistoryId(null);
+            }
+            refreshHistory();
+        }
+    };
+
+    const handleClearAllHistory = () => {
+        if (confirm('Clear all generation history? This cannot be undone.')) {
+            historyService.clearHistory();
+            setCurrentHistoryId(null);
+            refreshHistory();
+        }
+    };
+
+    // Get current items based on active tab
+    const getCurrentItems = () => {
+        return activeTab === "professional" ? professionalItems : standardizedItems;
+    };
+
+    const setCurrentItems = (updater: (prev: BOQItem[]) => BOQItem[]) => {
+        if (activeTab === "professional") {
+            setProfessionalItems(updater);
+        } else {
+            setStandardizedItems(updater);
+        }
+    };
+
     const handleUpdateQuantity = (id: string, qty: number) => {
-        setGeneratedItems(prev =>
+        setCurrentItems(prev =>
             prev.map(item => item.id === id ? { ...item, boqQty: qty } : item)
         );
     };
 
     const handleRemove = (id: string) => {
-        setGeneratedItems(prev => prev.filter(item => item.id !== id));
+        setCurrentItems(prev => prev.filter(item => item.id !== id));
     };
 
     const handleUpdateMaterial = (material: Material) => {
-        setGeneratedItems(prev =>
+        setCurrentItems(prev =>
             prev.map(item => item.id === material.id ? { ...item, ...material } : item)
         );
     };
 
     const handleAddMaterial = (material: Material) => {
+        const counterRef = activeTab === "professional" ? professionalCounterRef : standardizedCounterRef;
+        const prefix = activeTab === "professional" ? "P" : "S";
         const newItem: BOQItem = {
             ...material,
-            id: `G-${String(generatedCounterRef.current++).padStart(3, '0')}`,
+            id: `${prefix}-${String(counterRef.current++).padStart(3, '0')}`,
             boqQty: 1,
             remarks: ""
         };
-        setGeneratedItems(prev => [...prev, newItem]);
+        setCurrentItems(prev => [...prev, newItem]);
     };
 
-    // Dummy handler for remark (not used but required by BOQTable)
     const handleUpdateRemark = (id: string, remark: string) => {
         // No-op: remarks are not editable in AI generator
     };
 
+    const handleReorder = (newItems: BOQItem[]) => {
+        if (activeTab === "professional") {
+            setProfessionalItems(newItems);
+        } else {
+            setStandardizedItems(newItems);
+        }
+    };
+
     const handleCopyToClipboard = () => {
+        const items = getCurrentItems();
         const header = "S:NO\tDESCRIPTION\tCATEGORY\tQTY UNITS";
-        const rows = generatedItems.map((item, idx) => {
+        const rows = items.map((item, idx) => {
             return `${idx + 1}\t${item.description || ""}\t${item.category || ""}\t${item.boqQty || 0} ${item.unit || ""}`;
         }).join("\n");
 
@@ -189,13 +384,26 @@ export function AIGeneratorDialog({ onAddMaterials }: AIGeneratorDialogProps) {
     };
 
     const handleAddToBOQ = () => {
-        onAddMaterials(generatedItems);
+        // Add items from the active tab to the project
+        const items = getCurrentItems();
+        onAddMaterials(items);
         setOpen(false);
         setStep("input");
         setFiles([]);
         setDescription("");
-        setGeneratedItems([]);
-        generatedCounterRef.current = 1; // Reset counter
+        setProfessionalItems([]);
+        setStandardizedItems([]);
+        professionalCounterRef.current = 1;
+        standardizedCounterRef.current = 1;
+        setCurrentHistoryId(null);
+        setStandardizedGenerated(false);
+    };
+
+    const hasItems = professionalItems.length > 0 || standardizedItems.length > 0;
+
+    const formatDate = (isoString: string) => {
+        const date = new Date(isoString);
+        return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     };
 
     return (
@@ -208,16 +416,28 @@ export function AIGeneratorDialog({ onAddMaterials }: AIGeneratorDialogProps) {
             </DialogTrigger>
             <DialogContent className="max-w-[95vw] w-full h-[90vh] flex flex-col p-0 gap-0">
                 <DialogHeader className="px-6 py-4 border-b flex-shrink-0">
-                    <DialogTitle className="flex items-center gap-2 text-xl">
-                        <Sparkles className="h-5 w-5 text-indigo-500" />
-                        AI Material Generator
-                    </DialogTitle>
+                    <div className="flex items-center justify-between">
+                        <DialogTitle className="flex items-center gap-2 text-xl">
+                            <Sparkles className="h-5 w-5 text-indigo-500" />
+                            AI Material Generator
+                        </DialogTitle>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setShowHistory(!showHistory)}
+                            className={`gap-2 ${showHistory ? 'bg-indigo-50 text-indigo-700' : ''}`}
+                        >
+                            <History className="h-4 w-4" />
+                            History ({historySummaries.length})
+                            {showHistory ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+                        </Button>
+                    </div>
                 </DialogHeader>
 
                 <div className={`flex-1 flex overflow-hidden w-full ${isResizing ? 'select-none' : ''}`} ref={containerRef}>
                     {/* Left Sidebar - Input */}
                     <aside
-                        className="flex-shrink-0 flex flex-col h-full bg-card"
+                        className="flex-shrink-0 flex flex-col h-full bg-card transition-[width] duration-200 ease-out"
                         style={{ width: `${sidebarWidth}%` }}
                     >
                         <div className="p-4 border-b space-y-4">
@@ -330,7 +550,7 @@ export function AIGeneratorDialog({ onAddMaterials }: AIGeneratorDialogProps) {
                                         <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                                         Generating...
                                     </>
-                                ) : generatedItems.length > 0 ? (
+                                ) : hasItems ? (
                                     <>
                                         <Sparkles className="mr-2 h-5 w-5" />
                                         Regenerate List
@@ -342,71 +562,25 @@ export function AIGeneratorDialog({ onAddMaterials }: AIGeneratorDialogProps) {
                                     </>
                                 )}
                             </Button>
-                            {/* <Button
-                                variant="outline"
-                                onClick={() => {
-                                    const mockData = [
-                                        { description: "MDF PLAIN 18MM (1.22X2.44M)", category: "Wood", qty: "3", unit: "SHEET" },
-                                        { description: "MDF PLAIN 12MM (1.22X2.44M)", category: "Wood", qty: "1", unit: "SHEET" },
-                                        { description: "ACRYLIC CLEAR 5MM (1.22X2.44M)", category: "Plastic", qty: "1.5", unit: "SHEET" },
-                                        { description: "ACRYLIC FLUTED CLEAR (1.22X2.44M)", category: "Plastic", qty: "0.5", unit: "SHEET" },
-                                        { description: "MS SHEET 2MM (1.22X2.44M)", category: "Metal", qty: "0.5", unit: "SHEET" },
-                                        { description: "GRAPHICS VINYL STICKER", category: "Graphics", qty: "5", unit: "SQM" },
-                                        { description: "BUSH", category: "Hardware", qty: "4", unit: "PCS" },
-                                        { description: "FEVICOL", category: "Consumable", qty: "2", unit: "KG" },
-                                        { description: "CHLOROFORM", category: "Consumable", qty: "1", unit: "0.5" },
-                                        { description: "SUPER GLUE", category: "Consumable", qty: "5", unit: "NOS" },
-                                        { description: "SCREWS", category: "Hardware", qty: "100", unit: "PCS" },
-                                        { description: "GUN NAILS", category: "Hardware", qty: "1", unit: "PKT" },
-                                        { description: "SANDING PAPER", category: "Consumable", qty: "8", unit: "PCS" },
-                                        { description: "PU PAINT", category: "Paint", qty: "1", unit: "LTR" },
-                                        { description: "PU HARDENER", category: "Paint", qty: "0.5", unit: "LTR" },
-                                        { description: "PU THINNER", category: "Paint", qty: "0.25", unit: "LTR" },
-                                        { description: "PU PRIMER", category: "Paint", qty: "2", unit: "LTR" },
-                                        { description: "PU PRIMER HARDENER", category: "Paint", qty: "1", unit: "LTR" },
-                                        { description: "PU PRIMER THINNER", category: "Paint", qty: "3", unit: "LTR" },
-                                        { description: "PUTTY", category: "Paint", qty: "0.1", unit: "KG" },
-                                    ].map((item, idx) => ({
-                                        id: `G-${String(generatedCounterRef.current++).padStart(3, '0')}`,
-                                        category: item.category,
-                                        description: item.description,
-                                        qty: item.qty,
-                                        unit: item.unit,
-                                        rate: "0",
-                                        details: {},
-                                        boqQty: Number(item.qty) || 1,
-                                        remarks: ""
-                                    })) as BOQItem[];
-
-                                    setGeneratedItems(mockData);
-                                    setStep("review");
-                                    setDescription("Test Generation");
-                                }}
-                                className="w-full mt-2"
-                            >
-                                Test Fill (Dev)
-                            </Button> */}
                         </div>
                     </aside>
+
+
 
                     {/* Resizable Handle */}
                     <div
                         className="w-4 bg-transparent hover:bg-primary/10 cursor-col-resize flex items-center justify-center relative group transition-colors -ml-0 z-10"
                         onMouseDown={startResizing}
                     >
-                        {/* Visible line */}
                         <div className="absolute inset-y-0 w-px bg-border group-hover:bg-primary/50 transition-colors left-1/2 -translate-x-1/2" />
-
-                        {/* Round handle with arrow */}
                         <div className="bg-background border shadow-sm rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity absolute pointer-events-none transform -translate-x-1 shadow-md">
                             <ArrowLeftRight className="h-3 w-3 text-muted-foreground" />
                         </div>
                     </div>
 
-                    {/* Right Content - Results */}
+                    {/* Right Content - Results with Tabs */}
                     <main
-                        className="flex-shrink-0 flex flex-col overflow-hidden relative bg-background"
-                        style={{ width: `${100 - sidebarWidth}%` }}
+                        className="flex-1 flex flex-col overflow-hidden relative bg-background min-w-0"
                     >
                         {step === "processing" ? (
                             <div className="absolute inset-0 z-10 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center space-y-4">
@@ -415,17 +589,53 @@ export function AIGeneratorDialog({ onAddMaterials }: AIGeneratorDialogProps) {
                                 </div>
                                 <div className="text-center space-y-1">
                                     <h3 className="font-semibold text-xl text-indigo-900">Analyzing Requirements...</h3>
-                                    <p className="text-muted-foreground">Identifying materials, finishes, and quantities from your prompt.</p>
+                                    <p className="text-muted-foreground">Identifying materials and matching to D&C standards.</p>
                                 </div>
                             </div>
                         ) : null}
 
-                        {generatedItems.length > 0 ? (
-                            <div className="flex-1 flex flex-col overflow-hidden">
-                                {/* Action Bar */}
+                        {hasItems ? (
+                            <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
+                                {/* Tab Header with Actions */}
                                 <div className="flex items-center justify-between px-6 py-3 border-b bg-white">
-                                    <h3 className="font-semibold text-base">Generated Materials</h3>
+                                    <TabsList className="grid grid-cols-2 w-auto">
+                                        {TABLE_TABS.map(tab => (
+                                            <TabsTrigger key={tab.id} value={tab.id} className="px-6">
+                                                {tab.label}
+                                                {tab.id === "professional" ? (
+                                                    <span className="ml-2 flex items-center gap-1">
+                                                        <Check className="h-3 w-3 text-green-600" />
+                                                        <span className="text-xs text-muted-foreground">({professionalItems.length})</span>
+                                                    </span>
+                                                ) : (
+                                                    <span className="ml-2 flex items-center gap-1">
+                                                        {standardizedGenerated ? (
+                                                            <Check className="h-3 w-3 text-green-600" />
+                                                        ) : isStandardizing ? (
+                                                            <Loader2 className="h-3 w-3 text-indigo-500 animate-spin" />
+                                                        ) : (
+                                                            <span className="h-2 w-2 rounded-full bg-amber-400" />
+                                                        )}
+                                                        <span className="text-xs text-muted-foreground">
+                                                            {standardizedGenerated ? `(${standardizedItems.length})` : isStandardizing ? '(Generating...)' : '(Pending)'}
+                                                        </span>
+                                                    </span>
+                                                )}
+                                            </TabsTrigger>
+                                        ))}
+                                    </TabsList>
                                     <div className="flex items-center gap-2">
+                                        {currentHistoryId && (
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => handleExportHistory(currentHistoryId)}
+                                                className="h-9"
+                                            >
+                                                <Download className="h-4 w-4 mr-2" />
+                                                Export
+                                            </Button>
+                                        )}
                                         <Button variant="outline" size="sm" onClick={handleCopyToClipboard} className="h-9">
                                             {copied ? <Check className="h-4 w-4 mr-2" /> : <Copy className="h-4 w-4 mr-2" />}
                                             Copy
@@ -437,22 +647,77 @@ export function AIGeneratorDialog({ onAddMaterials }: AIGeneratorDialogProps) {
                                     </div>
                                 </div>
 
-                                {/* BOQTable - with ScrollArea */}
-                                <ScrollArea className="flex-1">
-                                    <div className="p-6">
-                                        <BOQTable
-                                            items={generatedItems}
-                                            onUpdateQuantity={handleUpdateQuantity}
-                                            onRemove={handleRemove}
-                                            onAddMaterial={handleAddMaterial}
-                                            onUpdateRemark={handleUpdateRemark}
-                                            onUpdateMaterial={handleUpdateMaterial}
-                                            isPriceVisible={false}
-                                            hideRemark={true}
-                                        />
-                                    </div>
-                                </ScrollArea>
-                            </div>
+                                {/* Tab Contents */}
+                                <TabsContent value="professional" className="flex-1 m-0 overflow-hidden">
+                                    <ScrollArea className="h-full">
+                                        <div className="p-6">
+                                            <BOQTable
+                                                items={professionalItems}
+                                                onUpdateQuantity={handleUpdateQuantity}
+                                                onRemove={handleRemove}
+                                                onAddMaterial={handleAddMaterial}
+                                                onUpdateRemark={handleUpdateRemark}
+                                                onUpdateMaterial={handleUpdateMaterial}
+                                                onReorder={handleReorder}
+                                                isPriceVisible={false}
+                                                hideRemark={true}
+                                            />
+                                        </div>
+                                    </ScrollArea>
+                                </TabsContent>
+
+                                <TabsContent value="standardized" className="flex-1 m-0 overflow-hidden">
+                                    {isStandardizing ? (
+                                        /* D&C Generating in Background - Show Loading */
+                                        <div className="flex-1 flex flex-col items-center justify-center p-8 h-full">
+                                            <div className="max-w-md text-center space-y-6">
+                                                <div className="h-20 w-20 mx-auto rounded-full bg-indigo-50 flex items-center justify-center animate-pulse">
+                                                    <Loader2 className="h-10 w-10 text-indigo-500 animate-spin" />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <h3 className="text-xl font-semibold text-slate-700">Generating D&C Standards...</h3>
+                                                    <p className="text-slate-500">
+                                                        Matching your {professionalItems.length} materials to D&C company naming conventions.
+                                                        You can continue reviewing the Professional list.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ) : !standardizedGenerated ? (
+                                        /* D&C Failed or Not Started - Show Error State */
+                                        <div className="flex-1 flex flex-col items-center justify-center p-8 h-full">
+                                            <div className="max-w-md text-center space-y-6">
+                                                <div className="h-20 w-20 mx-auto rounded-full bg-amber-50 flex items-center justify-center">
+                                                    <Sparkles className="h-10 w-10 text-amber-500" />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <h3 className="text-xl font-semibold text-slate-700">D&C Standards Pending</h3>
+                                                    <p className="text-slate-500">
+                                                        Generate new materials to automatically create D&C standardized versions.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        /* D&C Generated - Show Table */
+                                        <ScrollArea className="h-full">
+                                            <div className="p-6">
+                                                <BOQTable
+                                                    items={standardizedItems}
+                                                    onUpdateQuantity={handleUpdateQuantity}
+                                                    onRemove={handleRemove}
+                                                    onAddMaterial={handleAddMaterial}
+                                                    onUpdateRemark={handleUpdateRemark}
+                                                    onUpdateMaterial={handleUpdateMaterial}
+                                                    onReorder={handleReorder}
+                                                    isPriceVisible={false}
+                                                    hideRemark={true}
+                                                />
+                                            </div>
+                                        </ScrollArea>
+                                    )}
+                                </TabsContent>
+                            </Tabs>
                         ) : (
                             <div className="flex-1 flex flex-col items-center justify-center text-slate-300 p-8">
                                 <div className="h-24 w-24 rounded-full bg-slate-100 flex items-center justify-center mb-6">
@@ -465,6 +730,105 @@ export function AIGeneratorDialog({ onAddMaterials }: AIGeneratorDialogProps) {
                             </div>
                         )}
                     </main>
+
+                    {/* History Panel (Collapsible) */}
+                    {showHistory && (
+                        <aside className="w-72 flex-shrink-0 flex flex-col h-full bg-slate-50 border-l">
+                            <div className="p-4 border-b bg-white flex items-center justify-between">
+                                <h2 className="font-semibold text-base tracking-tight flex items-center gap-2">
+                                    <History className="h-4 w-4 text-slate-500" />
+                                    History
+                                </h2>
+                                {historySummaries.length > 0 && (
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={handleClearAllHistory}
+                                        className="text-xs text-slate-500 hover:text-red-600 h-7 px-2"
+                                    >
+                                        Clear All
+                                    </Button>
+                                )}
+                            </div>
+
+                            <ScrollArea className="flex-1">
+                                {historySummaries.length === 0 ? (
+                                    <div className="p-6 text-center text-slate-400">
+                                        <History className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                                        <p className="text-sm">No history yet</p>
+                                        <p className="text-xs mt-1">Generations will appear here</p>
+                                    </div>
+                                ) : (
+                                    <div className="p-2 space-y-2">
+                                        {historySummaries.map((summary) => (
+                                            <div
+                                                key={summary.id}
+                                                className={`p-3 rounded-lg border bg-white hover:shadow-sm transition-all cursor-pointer ${currentHistoryId === summary.id ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200'}`}
+                                                onClick={() => handleRestoreFromHistory(summary.id)}
+                                            >
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-xs text-slate-500 mb-1">
+                                                            {formatDate(summary.timestamp)}
+                                                        </p>
+                                                        <p className="text-sm font-medium text-slate-700 line-clamp-2">
+                                                            {summary.promptPreview || '(No prompt)'}
+                                                        </p>
+                                                        <div className="flex items-center gap-2 mt-2 text-xs text-slate-500">
+                                                            {summary.imageCount > 0 && (
+                                                                <span className="flex items-center gap-1">
+                                                                    <Upload className="h-3 w-3" />
+                                                                    {summary.imageCount}
+                                                                </span>
+                                                            )}
+                                                            <span>{summary.itemCounts.professional + summary.itemCounts.standardized} items</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-1 mt-2 pt-2 border-t">
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleRestoreFromHistory(summary.id);
+                                                        }}
+                                                        className="h-7 px-2 text-xs text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
+                                                    >
+                                                        <RotateCcw className="h-3 w-3 mr-1" />
+                                                        Restore
+                                                    </Button>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleExportHistory(summary.id);
+                                                        }}
+                                                        className="h-7 px-2 text-xs text-slate-600 hover:text-slate-700"
+                                                    >
+                                                        <Download className="h-3 w-3 mr-1" />
+                                                        Export
+                                                    </Button>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleDeleteHistory(summary.id);
+                                                        }}
+                                                        className="h-7 px-2 text-xs text-slate-400 hover:text-red-600 ml-auto"
+                                                    >
+                                                        <Trash2 className="h-3 w-3" />
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </ScrollArea>
+                        </aside>
+                    )}
                 </div>
             </DialogContent>
         </Dialog>
