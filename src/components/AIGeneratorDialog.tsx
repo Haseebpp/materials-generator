@@ -359,7 +359,7 @@ export function AIGeneratorDialog({ onAddMaterials }: AIGeneratorDialogProps) {
         setCurrentItems(prev => [...prev, newItem]);
     };
 
-    const handleUpdateRemark = (id: string, remark: string) => {
+    const handleUpdateRemark = (_id: string, _remark: string) => {
         // No-op: remarks are not editable in AI generator
     };
 

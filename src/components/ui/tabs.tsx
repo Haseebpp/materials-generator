@@ -8,20 +8,23 @@ const TabsContext = React.createContext<{
 } | null>(null)
 
 interface TabsProps extends React.HTMLAttributes<HTMLDivElement> {
-    defaultValue: string
+    defaultValue?: string
+    value?: string
     onValueChange?: (value: string) => void
 }
 
 const Tabs = React.forwardRef<HTMLDivElement, TabsProps>(
-    ({ className, defaultValue, onValueChange, children, ...props }, ref) => {
-        const [activeTab, setActiveTabState] = React.useState(defaultValue)
+    ({ className, defaultValue, value: controlledValue, onValueChange, children, ...props }, ref) => {
+        const [internalTab, setInternalTab] = React.useState(defaultValue ?? "")
+        const isControlled = controlledValue !== undefined
+        const activeTab = isControlled ? controlledValue : internalTab
 
         const setActiveTab = React.useCallback(
             (value: string) => {
-                setActiveTabState(value)
+                if (!isControlled) setInternalTab(value)
                 onValueChange?.(value)
             },
-            [onValueChange]
+            [isControlled, onValueChange]
         )
 
         return (
